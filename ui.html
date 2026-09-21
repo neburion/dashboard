@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d0d0d">
+<title>Fleet</title>
+<style>
+/* Dark only, on purpose. The two trackers this sits beside are dark, and the
+   page is read on a phone at night as often as at a desk — a light mode nobody
+   asked for is a second palette to keep honest for no one. */
+:root{
+  color-scheme: dark;
+  --plane:#0d0d0d;          /* page */
+  --surface:#161719;        /* cards */
+  --surface-2:#1d1f22;      /* insets */
+  --line:#2c2c2a;           /* hairline */
+  --ink:#ffffff;
+  --ink-2:#c3c2b7;
+  --muted:#898781;
+
+  /* Status. Fixed roles, never reused as decoration. Red and green are four
+     ΔE apart under deuteranopia, so every state also carries a glyph and a
+     word — the colour is the third channel here, not the only one. */
+  --ok:#0ca30c;
+  --warn:#fab219;
+  --bad:#d03b3b;
+
+  /* Meters: fill carries severity, track is a darker step of the same hue so
+     the state reads across the whole bar rather than only the filled part. */
+  --m-ok:#3987e5;   --m-ok-track:#16305a;
+  --m-warn:#fab219; --m-warn-track:#4a3606;
+  --m-bad:#d03b3b;  --m-bad-track:#45191a;
+
+  --r:14px;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{overflow-x:hidden}
+body{
+  margin:0;background:var(--plane);color:var(--ink);
+  font:400 15px/1.55 var(--sans);
+  -webkit-font-smoothing:antialiased;
+  padding:0 0 64px;
+}
+.wrap{width:min(1180px,calc(100vw - 32px));margin:0 auto}
+
+/* ── header ─────────────────────────────────────────────────────────── */
+header{
+  position:sticky;top:0;z-index:20;
+  background:color-mix(in srgb,var(--plane) 88%,transparent);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.bar{display:flex;align-items:center;gap:14px;padding:14px 0}
+.mark{font-size:15px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
+.spacer{flex:1}
+.stamp{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent);
+  animation:pulse 2.6s ease-out infinite}
+.pulse.off{background:var(--muted);animation:none;box-shadow:none}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}
+  70%{box-shadow:0 0 0 7px transparent}
+  100%{box-shadow:0 0 0 0 transparent}
+}
+button.ghost{
+  padding:6px 12px;background:transparent;border:1px solid var(--line);
+  border-radius:8px;color:var(--ink-2);font:inherit;font-size:13px;cursor:pointer}
+button.ghost:hover{border-color:#3d3f44;color:var(--ink)}
+button.ghost:disabled{opacity:.45;cursor:default}
+
+/* ── hero ───────────────────────────────────────────────────────────── */
+.hero{
+  display:flex;flex-wrap:wrap;align-items:flex-start;gap:28px;
+  margin:28px 0 10px;padding:26px 28px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+}
+.hero .figure{font-size:64px;line-height:1;font-weight:600;letter-spacing:-.03em}
+.hero .figure.clear{color:var(--ok)}
+.hero .figure.trouble{color:var(--bad)}
+.hero .lede{padding-top:6px}
+.hero .lede h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em}
+.hero .lede p{margin:3px 0 0;color:var(--muted);font-size:13.5px}
+.hero .counts{margin-left:auto;display:flex;gap:26px;padding-top:6px}
+.count b{display:block;font-size:22px;font-weight:600;line-height:1.2}
+.count span{color:var(--muted);font-size:11.5px;text-transform:uppercase;
+  letter-spacing:.07em}
+
+/* ── alerts ─────────────────────────────────────────────────────────── */
+.alerts{display:flex;flex-direction:column;gap:6px;margin:14px 0 0}
+.alert{
+  display:flex;align-items:baseline;gap:11px;padding:10px 14px;
+  background:var(--surface);border:1px solid var(--line);
+  border-left:3px solid var(--line);border-radius:9px;font-size:13.5px}
+.alert.bad{border-left-color:var(--bad)}
+.alert.warn{border-left-color:var(--warn)}
+.alert .state{min-width:58px}
+.alert .who{color:var(--ink-2);font-weight:500;min-width:118px}
+.alert .what{font-weight:500}
+.alert .detail{color:var(--muted);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── sections ───────────────────────────────────────────────────────── */
+h2{margin:34px 0 12px;font-size:11.5px;font-weight:600;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.1em}
+.grid{display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fit,minmax(288px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r);padding:18px 20px;
+  /* The grid stretches every card to the tallest in its row; without this the
+     chip row lands mid-card on the short ones and the bottoms do not line up. */
+  display:flex;flex-direction:column}
+.card.down{border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+
+/* state = glyph + word + colour. Never colour alone: the good/bad pair is
+   indistinguishable to a red-green viewer, and this page is mostly that pair. */
+.state{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;
+  font-weight:600;letter-spacing:.01em}
+.state .g{display:inline-grid;place-items:center;width:15px;height:15px;
+  border-radius:50%;font-size:10px;font-weight:700;line-height:1;color:var(--plane)}
+.state.ok   .g{background:var(--ok)}
+.state.warn .g{background:var(--warn)}
+.state.bad  .g{background:var(--bad)}
+.state.idle .g{background:var(--muted)}
+.state.ok{color:var(--ok)} .state.warn{color:var(--warn)}
+.state.bad{color:var(--bad)} .state.idle{color:var(--muted)}
+
+.card .top{display:flex;align-items:center;gap:10px;margin-bottom:2px}
+.card .name{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.card .sub{color:var(--muted);font-size:12.5px;margin-bottom:16px;
+  font-variant-numeric:tabular-nums}
+
+/* ── meters ─────────────────────────────────────────────────────────── */
+.meter{margin:0 0 11px}
+.meter .cap{display:flex;justify-content:space-between;align-items:baseline;
+  gap:10px;margin-bottom:5px;font-size:12.5px}
+.meter .cap .k{color:var(--ink-2)}
+.meter .cap .v{color:var(--muted);font-variant-numeric:tabular-nums}
+.track{height:6px;border-radius:3px;overflow:hidden;background:var(--m-ok-track)}
+.track>i{display:block;height:100%;border-radius:3px;background:var(--m-ok);
+  transition:width .5s cubic-bezier(.4,0,.2,1)}
+.meter.warn .track{background:var(--m-warn-track)}
+.meter.warn .track>i{background:var(--m-warn)}
+.meter.bad .track{background:var(--m-bad-track)}
+.meter.bad .track>i{background:var(--m-bad)}
+
+.facts{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;
+  padding-top:13px;border-top:1px solid var(--line)}
+.facts:only-child,.card>.facts{margin-top:auto}
+.meter:last-of-type{margin-bottom:14px}
+.chip{padding:3px 9px;background:var(--surface-2);border-radius:999px;
+  color:var(--ink-2);font-size:11.5px;font-variant-numeric:tabular-nums}
+.chip.warn{background:color-mix(in srgb,var(--warn) 16%,var(--surface-2));
+  color:var(--warn)}
+/* A sleeping phone is a standing fact, not a fault — recessive, never amber. */
+.chip.off{color:var(--muted)}
+
+/* ── tables ─────────────────────────────────────────────────────────── */
+.scroll{overflow-x:auto;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r)}
+table{width:100%;border-collapse:collapse;font-size:13.5px;
+  font-variant-numeric:tabular-nums}
+th{padding:11px 16px;text-align:left;font-size:11px;font-weight:600;
+  color:var(--muted);text-transform:uppercase;letter-spacing:.07em;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:12px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.host{color:var(--ink-2);font-weight:500}
+td.dim{color:var(--muted)}
+.tabular{font-variant-numeric:tabular-nums}
+
+/* ── sync ───────────────────────────────────────────────────────────── */
+.peer{display:flex;align-items:center;gap:11px;margin:9px 0 0;font-size:13px}
+.peer .pn{min-width:78px;color:var(--ink-2)}
+.peer .track{flex:1}
+.peer .pv{min-width:46px;text-align:right;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.note{margin:12px 0 0;color:var(--muted);font-size:12.5px}
+
+.empty{padding:22px;color:var(--muted);font-size:13.5px;text-align:center;
+  background:var(--surface);border:1px dashed var(--line);border-radius:var(--r)}
+footer{margin-top:40px;color:var(--muted);font-size:12px;text-align:center}
+
+@media (max-width:640px){
+  .hero{padding:20px;gap:18px}
+  .hero .figure{font-size:52px}
+  .hero .counts{margin-left:0;width:100%;gap:22px;
+    padding-top:14px;border-top:1px solid var(--line)}
+  /* Squeezed beside the label, the detail wrapped one word per line and made
+     a four-word alert six rows tall. It gets the whole second line instead. */
+  .alert{flex-wrap:wrap;gap:3px 10px}
+  .alert .who{min-width:0}
+  .alert .detail{flex:1 0 100%;white-space:normal;padding-left:68px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <span class="mark">Fleet</span>
+    <span class="pulse" id="pulse"></span>
+    <span class="spacer"></span>
+    <span class="stamp" id="stamp">loading…</span>
+    <button class="ghost" id="refresh">Refresh</button>
+  </div>
+</header>
+
+<main class="wrap" id="main">
+  <div class="empty" style="margin-top:28px">Asking the fleet…</div>
+</main>
+
+<footer>Polled from each host's fleet-status agent · no history kept</footer>
+
+<script>
+"use strict";
+
+const POLL_MS = 15000;
+let data = null, at = 0, busy = false;
+
+/* ── formatting ───────────────────────────────────────────────────────── */
+
+const bytes = n => {
+  if (!n && n !== 0) return "—";
+  const u = ["B","KB","MB","GB","TB","PB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + " " + u[i];
+};
+
+const dur = s => {
+  if (s == null) return "—";
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h " + Math.floor(s % 3600 / 60) + "m";
+  return Math.floor(s / 86400) + "d " + Math.floor(s % 86400 / 3600) + "h";
+};
+
+/* Relative time, and always signed by direction — "in 4h" and "4h ago" are
+   opposite facts and a bare "4h" next to a backup's next run has been read as
+   both. */
+const ago = ts => {
+  if (!ts) return "never";
+  const d = Math.floor(Date.now() / 1000) - ts;
+  if (Math.abs(d) < 45) return d >= 0 ? "just now" : "any moment";
+  return d >= 0 ? dur(d) + " ago" : "in " + dur(-d);
+};
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g,
+  c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+
+/* One place decides what a percentage means, so a disk at 88% is the same
+   colour as a memory bar at 88% and neither drifts when one is edited. */
+const sev = pct => pct >= 92 ? "bad" : pct >= 85 ? "warn" : "ok";
+
+const GLYPH = { ok:"✓", warn:"!", bad:"✕", idle:"–" };
+const state = (kind, word) =>
+  `<span class="state ${kind}"><span class="g">${GLYPH[kind]}</span>${esc(word)}</span>`;
+
+const meter = (label, value, pct, kind) => `
+  <div class="meter ${kind || sev(pct)}">
+    <div class="cap"><span class="k">${esc(label)}</span><span class="v">${esc(value)}</span></div>
+    <div class="track" role="meter" aria-valuenow="${Math.round(pct)}"
+         aria-valuemin="0" aria-valuemax="100" aria-label="${esc(label)}"
+         title="${esc(label)}: ${Math.round(pct)}%">
+      <i style="width:${Math.max(0, Math.min(100, pct)).toFixed(1)}%"></i>
+    </div>
+  </div>`;
+
+/* ── sections ─────────────────────────────────────────────────────────── */
+
+function hero(d) {
+  const n = d.alerts.length;
+  const bad = d.alerts.filter(a => a.level === "bad").length;
+  const hosts = d.hosts.filter(h => h.reachable).length;
+  const apps = d.hosts.reduce((s, h) => s + ((h.apps || []).length || 0), 0);
+  const backups = d.hosts.reduce((s, h) => s + ((h.backups || []).length || 0), 0);
+
+  return `
+  <section class="hero">
+    <div class="figure ${n ? "trouble" : "clear"}">${n}</div>
+    <div class="lede">
+      <h1>${n === 0 ? "Nothing wrong anywhere"
+                    : `${bad} broken, ${n - bad} worth a look`}</h1>
+      <p>${n === 0 ? "Every host answered, every check passed."
+                   : "Listed below, worst first."}</p>
+    </div>
+    <div class="counts">
+      <div class="count"><b>${hosts}/${d.hosts.length}</b><span>hosts up</span></div>
+      <div class="count"><b>${apps}</b><span>apps</span></div>
+      <div class="count"><b>${backups}</b><span>backup jobs</span></div>
+    </div>
+  </section>
+  ${n ? `<div class="alerts">${d.alerts.map(a => `
+    <div class="alert ${esc(a.level)}">
+      ${state(a.level, a.level === "bad" ? "fail" : "warn")}
+      <span class="who">${esc(a.host)}</span>
+      <span class="what">${esc(a.what)}</span>
+      <span class="detail">${esc(a.detail)}</span>
+    </div>`).join("")}</div>` : ""}`;
+}
+
+function hostCard(h) {
+  if (!h.reachable) return `
+    <div class="card down">
+      <div class="top"><span class="name">${esc(h.host)}</span>
+        ${state("bad", "unreachable")}</div>
+      <div class="sub">${esc(h.error || "no answer")}</div>
+      <p class="note">Nothing else is known about this machine — every number
+        on this page comes from an agent that is not answering.</p>
+    </div>`;
+
+  const b = h.boot || {}, m = h.memory || {}, g = h.generation || {};
+  const memPct = m.total ? 100 * m.used / m.total : 0;
+  const load1 = (b.load || [0])[0];
+  // Load against core count, not raw: 3.5 is idle on 20 cores and on fire on 2.
+  const loadPct = b.cpus ? 100 * load1 / b.cpus : 0;
+
+  const disks = (h.disks || []).filter(d => d && d.total).map(d =>
+    meter(d.mount, `${bytes(d.used)} / ${bytes(d.total)}`,
+          100 * d.used / d.total)).join("");
+
+  const chips = [];
+  if (g.number) chips.push(`<span class="chip">gen ${g.number} · ${ago(g.built)}</span>`);
+  if (g.reboot_pending) chips.push(`<span class="chip warn">reboot pending</span>`);
+  if (g.untracked) chips.push(`<span class="chip warn">test activation</span>`);
+  if (h.rtt_ms != null) chips.push(`<span class="chip">${h.rtt_ms} ms</span>`);
+
+  const failed = (h.health || {}).failed || [];
+
+  return `
+    <div class="card">
+      <div class="top"><span class="name">${esc(h.host)}</span>
+        ${failed.length ? state("bad", `${failed.length} failed`)
+                        : state("ok", "healthy")}</div>
+      <div class="sub">up ${dur(b.uptime)} · ${esc(b.kernel || "?")}</div>
+      ${meter("Memory", `${bytes(m.used)} / ${bytes(m.total)}`, memPct)}
+      ${meter("Load", `${load1?.toFixed(2) ?? "—"} of ${b.cpus ?? "?"}`, loadPct)}
+      ${disks}
+      ${chips.length ? `<div class="facts">${chips.join("")}</div>` : ""}
+    </div>`;
+}
+
+function backupRows(d) {
+  const rows = [];
+  for (const h of d.hosts) {
+    if (!h.reachable) continue;
+    const jobs = h.backups || [];
+    if (!jobs.length) {
+      // A host with no jobs is not a host with healthy jobs. Saying so in its
+      // own colour is the single most valuable cell in this table.
+      rows.push(`<tr>
+        <td class="host">${esc(h.host)}</td>
+        <td class="dim">—</td>
+        <td>${state("idle", "not configured")}</td>
+        <td class="dim" colspan="3">nothing on this machine is backed up</td>
+      </tr>`);
+      continue;
+    }
+    for (const b of jobs) {
+      const ok = b.result === "success";
+      const st = b.running ? state("warn", "running")
+               : ok ? state("ok", "success")
+                    : state("bad", esc(b.result || "unknown"));
+      rows.push(`<tr>
+        <td class="host">${esc(h.host)}</td>
+        <td>${esc(b.job)}</td>
+        <td>${st}</td>
+        <td class="${ok ? "dim" : ""}">${esc(ago(b.last))}</td>
+        <td class="dim">${esc(dur(b.duration))}</td>
+        <td class="dim">${esc(ago(b.next))}</td>
+      </tr>`);
+    }
+  }
+  if (!rows.length) return `<div class="empty">No host reported a backup job.</div>`;
+  return `<div class="scroll"><table>
+    <thead><tr><th>Host</th><th>Job</th><th>Last run</th>
+      <th>When</th><th>Took</th><th>Next</th></tr></thead>
+    <tbody>${rows.join("")}</tbody></table></div>`;
+}
+
+function syncCards(d) {
+  const cards = [];
+  for (const h of d.hosts) {
+    const s = h.syncthing;
+    if (!s || !s.folders) continue;
+
+    const devices = s.devices.map(dv =>
+      `<span class="chip${dv.connected ? "" : " off"}">${esc(dv.name)}${
+        dv.connected ? "" : " · offline"}</span>`).join("");
+
+    for (const f of s.folders) {
+      const behind = f.need_bytes > 0;
+      cards.push(`
+      <div class="card">
+        <div class="top"><span class="name">${esc(f.label)}</span>
+          ${behind ? state("warn", `${f.need_items} behind`) : state("ok", "in sync")}</div>
+        <div class="sub">${esc(h.host)} · ${bytes(f.global_bytes)}</div>
+        ${f.peers.map(p => `
+          <div class="peer">
+            <span class="pn">${esc(p.device)}</span>
+            <div class="track ${p.completion >= 100 ? "" : "warn"}"
+                 title="${esc(p.device)}: ${p.completion}%">
+              <i style="width:${Math.max(0, Math.min(100, p.completion))}%"></i></div>
+            <span class="pv">${p.completion}%</span>
+          </div>`).join("")}
+        ${f.peers.some(p => p.completion === 0) ? `<p class="note">A peer at 0%
+          has not accepted this folder yet — that is a tap on the phone, not a
+          stalled sync.</p>` : ""}
+        <div class="facts">${devices}</div>
+      </div>`);
+    }
+  }
+  return cards.length ? `<div class="grid">${cards.join("")}</div>` : "";
+}
+
+function serviceRows(d) {
+  const rows = [];
+  for (const h of d.hosts) {
+    if (!h.reachable) continue;
+    for (const a of h.apps || []) {
+      rows.push(`<tr>
+        <td class="host">${esc(h.host)}</td>
+        <td>${esc(a.name)}</td>
+        <td class="dim">app · :${a.port}</td>
+        <td>${a.up ? state("ok", `HTTP ${a.code}`) : state("bad", "no answer")}</td>
+        <td class="dim">${a.up ? a.ms + " ms" : esc(a.error || "")}</td>
+      </tr>`);
+    }
+    for (const s of h.services || []) {
+      const on = s.active === "active";
+      rows.push(`<tr>
+        <td class="host">${esc(h.host)}</td>
+        <td>${esc(s.unit.replace(/\.service$/, ""))}</td>
+        <td class="dim">unit</td>
+        <td>${on ? state("ok", esc(s.sub)) : state("bad", esc(s.active))}</td>
+        <td class="dim">${esc(s.description)}</td>
+      </tr>`);
+    }
+  }
+  if (!rows.length) return `<div class="empty">Nothing reported.</div>`;
+  return `<div class="scroll"><table>
+    <thead><tr><th>Host</th><th>Name</th><th>Kind</th>
+      <th>State</th><th>Detail</th></tr></thead>
+    <tbody>${rows.join("")}</tbody></table></div>`;
+}
+
+/* ── render ───────────────────────────────────────────────────────────── */
+
+function render() {
+  if (!data) return;
+  const sync = syncCards(data);
+  document.getElementById("main").innerHTML = `
+    ${hero(data)}
+    <h2>Hosts</h2>
+    <div class="grid">${data.hosts.map(hostCard).join("")}</div>
+    <h2>Backups</h2>
+    ${backupRows(data)}
+    ${sync ? `<h2>Sync</h2>${sync}` : ""}
+    <h2>Services</h2>
+    ${serviceRows(data)}`;
+  tick();
+}
+
+function tick() {
+  const el = document.getElementById("stamp");
+  if (!el) return;
+  el.textContent = data ? "updated " + ago(data.at) : "—";
+}
+
+async function load(force) {
+  if (busy) return;
+  busy = true;
+  const btn = document.getElementById("refresh");
+  btn.disabled = true;
+  document.getElementById("pulse").classList.remove("off");
+  try {
+    const r = await fetch("/api/fleet" + (force ? "?force=1" : ""),
+                          { headers: { "Accept": "application/json" } });
+    // The session can expire while a tab is left open overnight; the API says
+    // 401 and the page would otherwise sit there showing yesterday.
+    if (r.status === 401) { location.href = "/login"; return; }
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    data = await r.json();
+    at = Date.now();
+    render();
+  } catch (e) {
+    document.getElementById("pulse").classList.add("off");
+    const el = document.getElementById("stamp");
+    if (el) el.textContent = "dashboard unreachable";
+  } finally {
+    busy = false;
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("refresh").addEventListener("click", () => load(true));
+// Coming back to a backgrounded tab should not show a stale page for 15s.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") load(false);
+});
+setInterval(() => load(false), POLL_MS);
+setInterval(tick, 1000);
+load(false);
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "fleet-dashboard",
+  "summary": "The fleet at a glance — hosts, syncs, backups, and whatever is wrong",
+  "runtime": "python3",
+  "run": "app.py",
+  "port": 8779,
+  "urls": [
+    "fleet.azuresalt.app"
+  ],
+  "state": false,
+  "secrets": [
+    "password",
+    "username"
+  ],
+  "env": {
+    "FD_HOST": "0.0.0.0",
+    "FD_PORT": "$PORT",
+    "FD_AGENTS": "pod042,home-server,personal-server"
+  }
+}

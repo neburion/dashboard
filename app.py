@@ -1,0 +1,593 @@
+#!/usr/bin/env python3
+"""Fleet dashboard — three machines on one page.
+
+Stdlib only: no Flask, no pip. Polls the fleet-status agent on each host over
+the tailnet, works out what is wrong, and serves that plus the UI in ui.html.
+
+    python3 app.py                 # http://127.0.0.1:8779, no auth
+    python3 app.py --port 9000
+    python3 app.py --once          # print the verdict and exit, no server
+
+It holds nothing. There is no database and no state directory: every number on
+the page is read from an agent on the request that asked for it, so the worst
+this can be is out of date by `CACHE_TTL` seconds, and a restart loses nothing
+because there was nothing to lose.
+
+Auth is the same login screen the two trackers use, for the same reason — this
+is published at fleet.azuresalt.app, and it is an inventory of what the fleet
+runs and where. See the auth section.
+
+What it cannot tell you: whether personal-server is up, because that is where
+it runs. A dead page is that host's outage. Everything else in here degrades to
+one unreachable card.
+"""
+import argparse
+import base64
+import hashlib
+import hmac
+import json
+import os
+import socket
+import threading
+import time
+import urllib.error
+import urllib.request
+from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
+from http.cookies import CookieError, SimpleCookie
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs, urlencode
+
+HERE = Path(__file__).resolve().parent
+UI = Path(os.environ.get("FD_UI") or HERE / "ui.html")
+
+AGENTS = [h for h in (os.environ.get("FD_AGENTS") or "").split(",") if h.strip()]
+AGENT_PORT = int(os.environ.get("FD_AGENT_PORT", "8081"))
+AGENT_TIMEOUT = 5
+
+DEFAULT_HOST = os.environ.get("FD_HOST", "127.0.0.1")
+DEFAULT_PORT = int(os.environ.get("FD_PORT", "8779"))
+
+# Three HTTP round trips over the tailnet per page load, and the agents only
+# take a fresh reading every 30s anyway — so polling harder than this buys
+# nothing but load. The page refreshes itself on a timer; without a cache,
+# two open tabs would double the traffic for identical numbers.
+CACHE_TTL = 10
+
+# An agent that has not collected in this long is reporting a dead timer, not
+# a healthy machine. Generous next to the 30s cadence so a slow boot or a
+# single missed tick is not an alarm.
+STALE_AFTER = 180
+
+DAY = 86400
+
+
+# --------------------------------------------------------------------- auth
+#
+# Same gate as the two trackers. This one holds no data of its own, which is
+# exactly why it needs the gate anyway: it is a map of the fleet — hostnames,
+# what each runs, which ports answer, how full the disks are. That is the
+# document you would want first.
+
+def _credential(name, env, fallback=""):
+    creds = os.environ.get("CREDENTIALS_DIRECTORY")
+    if creds:
+        p = Path(creds) / name
+        if p.exists():
+            return p.read_text().strip()
+    return (os.environ.get(env) or fallback).strip()
+
+
+PASSWORD = _credential("password", "FD_PASSWORD")
+USERNAME = _credential("username", "FD_USERNAME", "fleet")
+AUTH_ON = bool(PASSWORD)
+
+RATE_WINDOW = 3600
+RATE_MAX = 20
+RATE_MSG = "Too many attempts. Try again in an hour."
+_rate_lock = threading.Lock()
+_failures = defaultdict(deque)
+
+
+def _rate_ok(ip):
+    now = time.time()
+    with _rate_lock:
+        q = _failures[ip]
+        while q and now - q[0] > RATE_WINDOW:
+            q.popleft()
+        return len(q) < RATE_MAX
+
+
+def _rate_fail(ip):
+    with _rate_lock:
+        _failures[ip].append(time.time())
+
+
+def check_credentials(user, pw, ip):
+    """(ok, reason). Constant-time; never leaks which half was wrong."""
+    if not AUTH_ON:
+        return True, ""
+    if not _rate_ok(ip):
+        return False, "rate"
+    user_ok = hmac.compare_digest(user, USERNAME)
+    pw_ok = hmac.compare_digest(pw, PASSWORD)
+    if user_ok and pw_ok:
+        return True, ""
+    _rate_fail(ip)
+    return False, "bad"
+
+
+def check_auth(header, ip):
+    """(ok, reason) for an Authorization header. Kept for scripts and curl."""
+    if not AUTH_ON:
+        return True, ""
+    if not _rate_ok(ip):
+        return False, "rate"
+    if not header or not header.startswith("Basic "):
+        return False, "missing"
+    try:
+        raw = base64.b64decode(header[6:]).decode("utf-8")
+        user, _, pw = raw.partition(":")
+    except Exception:                                    # noqa: BLE001
+        _rate_fail(ip)
+        return False, "bad"
+    return check_credentials(user, pw, ip)
+
+
+# ------------------------------------------------------------------ session
+#
+# A signed timestamp rather than a session id: nothing to store, sweep or lose
+# across a restart. The key is derived from the password, so rotating the sops
+# secret invalidates every cookie in the wild for free.
+
+SESSION_COOKIE = "fd_session"
+SESSION_TTL = 30 * DAY
+SESSION_REFRESH = 21 * DAY
+
+
+def _session_key():
+    return hashlib.sha256(b"fd-session\x00" + PASSWORD.encode("utf-8")).digest()
+
+
+def _session_sig(exp):
+    return hmac.new(_session_key(), str(exp).encode("ascii"),
+                    hashlib.sha256).hexdigest()
+
+
+def make_session(now=None):
+    exp = int(now or time.time()) + SESSION_TTL
+    return f"{exp}.{_session_sig(exp)}"
+
+
+def check_session(value):
+    """(ok, seconds_left). Unsigned, malformed and expired all read False."""
+    if not AUTH_ON or not value:
+        return False, 0
+    exp, _, sig = value.partition(".")
+    if not exp.isdigit() or not sig:
+        return False, 0
+    if not hmac.compare_digest(sig, _session_sig(exp)):
+        return False, 0
+    left = int(exp) - int(time.time())
+    return left > 0, max(0, left)
+
+
+def safe_next(path):
+    """Only ever a path on this origin. An open redirect on the login of an
+    infrastructure page is a phishing kit with a real hostname in front of it."""
+    if not path or not path.startswith("/") or path.startswith("//"):
+        return "/"
+    return path
+
+
+_LOGIN_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Fleet</title>
+<style>
+:root{
+  --bg:#0b0d10; --panel:#14171c; --line:#232830;
+  --ink:#e6e9ef; --dim:#8b93a1; --accent:#7fb2e5; --bad:#e5786d;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;background:var(--bg);
+  color:var(--ink);font:400 15px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif}
+form{width:min(92vw,340px);padding:28px;background:var(--panel);
+  border:1px solid var(--line);border-radius:14px}
+h1{margin:0 0 4px;font-size:19px;font-weight:600;letter-spacing:-.01em}
+p.sub{margin:0 0 22px;color:var(--dim);font-size:13px}
+label{display:block;margin:0 0 6px;font-size:12px;color:var(--dim);
+  text-transform:uppercase;letter-spacing:.06em}
+input{width:100%;margin:0 0 16px;padding:10px 12px;background:#0e1115;
+  border:1px solid var(--line);border-radius:8px;color:var(--ink);font:inherit}
+input:focus{outline:none;border-color:var(--accent)}
+button{width:100%;padding:10px;background:var(--accent);border:0;border-radius:8px;
+  color:#0b0d10;font:600 15px/1 inherit;cursor:pointer}
+.err{margin:0 0 16px;padding:9px 11px;background:#2a1714;border:1px solid #4a2721;
+  border-radius:8px;color:var(--bad);font-size:13px}
+</style>
+</head>
+<body>
+<form method="post" action="/login">
+  <h1>Fleet</h1>
+  <p class="sub">__SUB__</p>
+  __ERR__
+  <input type="hidden" name="next" value="__NEXT__">
+  <label for="u">User</label>
+  <input id="u" type="text" name="username" autocomplete="username"
+         autocapitalize="none" autocorrect="off" spellcheck="false" required>
+  <label for="p">Password</label>
+  <input id="p" type="password" name="password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+</form>
+<script>
+/* Focus the first empty field: a password manager that filled both should not
+   have the cursor dropped back into what it just completed. */
+for (const el of [u, p]) if (!el.value) { el.focus(); break; }
+</script>
+</body>
+</html>"""
+
+
+def login_page(error="", nxt="/"):
+    esc = lambda s: (s.replace("&", "&amp;").replace("<", "&lt;")
+                      .replace(">", "&gt;").replace('"', "&quot;"))
+    return (_LOGIN_HTML
+            .replace("__SUB__", "Three machines, one page.")
+            .replace("__ERR__", f'<p class="err">{esc(error)}</p>' if error else "")
+            .replace("__NEXT__", esc(safe_next(nxt))))
+
+
+# ------------------------------------------------------------------ polling
+
+def fetch(host):
+    """One agent's reading, or a card that says why there isn't one.
+
+    A refused connection and a timeout mean different things to a person —
+    "the service is down" against "the machine is" — so the reason is carried
+    through rather than flattened to False.
+    """
+    url = f"http://{host}:{AGENT_PORT}/status.json"
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(url, timeout=AGENT_TIMEOUT) as r:
+            data = json.load(r)
+        data["reachable"] = True
+        data["rtt_ms"] = int((time.monotonic() - started) * 1000)
+        # The agent reports its own hostname; trust the name we dialled for
+        # identity, so a misconfigured agent cannot rename a card.
+        data["host"] = host
+        return data
+    except urllib.error.HTTPError as e:
+        why = f"agent answered {e.code}"
+    except urllib.error.URLError as e:
+        why = str(getattr(e, "reason", e))
+    except (socket.timeout, TimeoutError):
+        why = f"no answer in {AGENT_TIMEOUT}s"
+    except Exception as e:                               # noqa: BLE001
+        why = f"{type(e).__name__}: {e}"
+    return {"host": host, "reachable": False, "error": why}
+
+
+_cache = {"at": 0, "value": None}
+_cache_lock = threading.Lock()
+
+
+def poll(force=False):
+    with _cache_lock:
+        if not force and _cache["value"] and time.time() - _cache["at"] < CACHE_TTL:
+            return _cache["value"]
+    # Outside the lock: three hosts in parallel, and one that has gone away
+    # takes AGENT_TIMEOUT to say so. Holding the lock through that would make
+    # every other viewer wait on the dead machine.
+    with ThreadPoolExecutor(max_workers=max(1, len(AGENTS))) as pool:
+        hosts = list(pool.map(fetch, AGENTS))
+    value = {"at": int(time.time()), "hosts": hosts, "alerts": alerts(hosts)}
+    with _cache_lock:
+        _cache.update(at=time.time(), value=value)
+    return value
+
+
+# ------------------------------------------------------------------ verdicts
+#
+# The page's whole reason to exist is the top band, and a band that cries wolf
+# gets scrolled past. So: `bad` is something broken now, `warn` is something
+# that will be broken later, and anything that is merely a standing fact of the
+# fleet — home-server keeps no backups, a phone is asleep — is neither. It gets
+# drawn in its own colour further down and never appears up here.
+
+def alerts(hosts):
+    out = []
+
+    def add(level, host, what, detail=""):
+        out.append({"level": level, "host": host, "what": what, "detail": detail})
+
+    now = time.time()
+    for h in hosts:
+        name = h["host"]
+        if not h.get("reachable"):
+            add("bad", name, "unreachable", h.get("error", ""))
+            continue
+
+        age = now - h.get("collected", 0)
+        if age > STALE_AFTER:
+            add("warn", name, "stale reading",
+                f"last collected {int(age // 60)} min ago")
+
+        health = h.get("health") or {}
+        for unit in health.get("failed", []):
+            add("bad", name, "unit failed", unit)
+        if health.get("state") not in ("running", None):
+            if health.get("state") != "degraded":   # degraded is the failed list
+                add("warn", name, "systemd", health.get("state", "?"))
+
+        for d in h.get("disks") or []:
+            if not isinstance(d, dict):
+                continue
+            pct = 100 * d["used"] / d["total"] if d.get("total") else 0
+            if pct >= 92:
+                add("bad", name, "disk full", f"{d['mount']} at {pct:.0f}%")
+            elif pct >= 85:
+                add("warn", name, "disk filling", f"{d['mount']} at {pct:.0f}%")
+
+        for b in h.get("backups") or []:
+            if not isinstance(b, dict):
+                continue
+            if b.get("running"):
+                continue
+            if b.get("result") not in ("success", None):
+                add("bad", name, "backup failed",
+                    f"{b['job']}: {b.get('result')} (exit {b.get('exit')})")
+            elif b.get("last") and now - b["last"] > 2 * DAY:
+                add("warn", name, "backup stale",
+                    f"{b['job']} last ran {int((now - b['last']) // DAY)} days ago")
+
+        for a in h.get("apps") or []:
+            if isinstance(a, dict) and not a.get("up"):
+                add("bad", name, "app not answering",
+                    f"{a['name']} on :{a['port']}")
+
+        for s in h.get("services") or []:
+            if isinstance(s, dict) and s.get("active") != "active":
+                add("bad", name, "service down",
+                    f"{s['unit']} is {s.get('active')}")
+
+        gen = h.get("generation") or {}
+        if gen.get("reboot_pending"):
+            add("warn", name, "reboot pending", "kernel or initrd changed")
+        if gen.get("untracked"):
+            # A `trebuild` is a test activation: it dies on the next boot and
+            # belongs to no generation. Worth saying, because the machine looks
+            # entirely normal while running config that is about to vanish.
+            add("warn", name, "test activation", "running config is not a generation")
+
+        sync = h.get("syncthing")
+        if isinstance(sync, dict):
+            if sync.get("error"):
+                add("warn", name, "syncthing", sync["error"])
+            for f in sync.get("folders", []):
+                # Out of sync is only news when there is something to send.
+                # A folder a phone has not accepted sits at 0% forever and is
+                # a decision nobody made, not a fault. It shows as its own
+                # state on the card.
+                if f.get("need_bytes", 0) > 0:
+                    add("warn", name, "folder out of sync",
+                        f"{f['label']}: {f['need_items']} items behind")
+
+        # A section the collector could not read at all. Rare, and invisible
+        # otherwise, because everything above skips what it cannot parse.
+        for key, val in h.items():
+            if isinstance(val, dict) and val.get("error") and key != "syncthing":
+                add("warn", name, f"{key} unreadable", val["error"])
+
+    order = {"bad": 0, "warn": 1}
+    return sorted(out, key=lambda a: (order.get(a["level"], 2), a["host"]))
+
+
+# -------------------------------------------------------------------- server
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "fleet-dashboard"
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *a):
+        pass
+
+    def client_ip(self):
+        # Behind the tunnel every request arrives from loopback, so the rate
+        # limiter would be one shared bucket for the whole internet. CF-
+        # Connecting-IP is set by Cloudflare and is the only way to tell two
+        # of them apart; over the tailnet it is absent and the peer address is
+        # already the truth.
+        return (self.headers.get("CF-Connecting-IP")
+                or self.client_address[0])
+
+    # -- plumbing --------------------------------------------------------
+
+    def _write(self, body, ctype, code=200, headers=()):
+        raw = body.encode("utf-8") if isinstance(body, str) else body
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
+        for k, v in headers:
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _send(self, obj, code=200, headers=()):
+        self._write(json.dumps(obj), "application/json", code, headers)
+
+    def _html(self, body, code=200, headers=()):
+        self._write(body, "text/html; charset=utf-8", code, headers)
+
+    def _redirect(self, to, code=303):
+        self.send_response(code)
+        self.send_header("Location", to)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def cookie(self, name):
+        try:
+            jar = SimpleCookie(self.headers.get("Cookie", ""))
+        except CookieError:
+            return ""
+        got = jar.get(name)
+        return got.value if got else ""
+
+    def _secure_link(self):
+        return ((self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
+                or "https" in (self.headers.get("CF-Visitor") or ""))
+
+    def _issue_session(self):
+        self._cookie_out = (
+            f"{SESSION_COOKIE}={make_session()}; Max-Age={SESSION_TTL}; "
+            f"Path=/; HttpOnly; SameSite=Lax"
+            + ("; Secure" if self._secure_link() else ""))
+
+    def end_headers(self):
+        out = getattr(self, "_cookie_out", "")
+        if out:
+            self._cookie_out = ""
+            self.send_header("Set-Cookie", out)
+        super().end_headers()
+
+    # -- the gate --------------------------------------------------------
+
+    def logged_in(self):
+        ok, left = check_session(self.cookie(SESSION_COOKIE))
+        if ok:
+            if left < SESSION_REFRESH:
+                self._issue_session()
+            return True, ""
+        ok, why = check_auth(self.headers.get("Authorization"), self.client_ip())
+        if ok:
+            if AUTH_ON:
+                self._issue_session()
+            return True, ""
+        return False, why
+
+    def authed(self):
+        ok, why = self.logged_in()
+        if not ok:
+            self._deny(why)
+        return ok
+
+    def _deny(self, why):
+        """Refuse in the shape the caller can act on. Never WWW-Authenticate —
+        that header is what summons the browser's grey credential modal, which
+        is the thing the login screen exists to replace."""
+        page = self.command == "GET" and not self.path.startswith("/api/")
+        if why == "rate":
+            hdrs = (("Retry-After", str(RATE_WINDOW)),)
+            if page:
+                return self._html(login_page(RATE_MSG, safe_next(self.path)),
+                                  429, hdrs)
+            return self._send({"error": RATE_MSG}, 429, hdrs)
+        if page:
+            return self._redirect("/login?" + urlencode({"next": safe_next(self.path)}))
+        return self._send({"error": "not logged in"}, 401)
+
+    # -- routes ----------------------------------------------------------
+
+    def do_GET(self):
+        u = urlparse(self.path)
+
+        if u.path == "/login":
+            if not AUTH_ON or self.logged_in()[0]:
+                return self._redirect("/")
+            nxt = safe_next((parse_qs(u.query).get("next") or ["/"])[0])
+            return self._html(login_page(nxt=nxt))
+
+        if not self.authed():
+            return
+
+        if u.path in ("/", "/index.html"):
+            try:
+                return self._html(UI.read_text())
+            except FileNotFoundError:
+                return self.send_error(500, "ui.html missing")
+
+        if u.path == "/api/fleet":
+            force = (parse_qs(u.query).get("force") or ["0"])[0] == "1"
+            return self._send(poll(force))
+
+        return self.send_error(404, "not found")
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/login":
+            return self.send_error(404, "not found")
+        n = int(self.headers.get("Content-Length") or 0)
+        form = parse_qs(self.rfile.read(n).decode("utf-8"))
+        get = lambda k: (form.get(k) or [""])[0]
+        nxt = safe_next(get("next"))
+
+        ok, why = check_credentials(get("username"), get("password"),
+                                    self.client_ip())
+        if ok:
+            self._issue_session()
+            return self._redirect(nxt)
+        if why == "rate":
+            return self._html(login_page(RATE_MSG, nxt), 429,
+                              (("Retry-After", str(RATE_WINDOW)),))
+        return self._html(login_page("Wrong username or password.", nxt), 401)
+
+
+def print_once():
+    """The page's verdict, in a terminal. What this was debugged with."""
+    data = poll(force=True)
+    for h in data["hosts"]:
+        if not h.get("reachable"):
+            print(f"  {h['host']:<16} UNREACHABLE  {h.get('error','')}")
+            continue
+        b = h.get("boot") or {}
+        print(f"  {h['host']:<16} up {b.get('uptime',0)//3600}h  "
+              f"kernel {b.get('kernel','?')}  {h.get('rtt_ms','?')}ms")
+    if not data["alerts"]:
+        print("\n  nothing wrong anywhere.\n")
+        return
+    print()
+    for a in data["alerts"]:
+        print(f"  [{a['level']:<4}] {a['host']:<16} {a['what']}"
+              + (f" — {a['detail']}" if a["detail"] else ""))
+    print()
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Fleet dashboard")
+    ap.add_argument("--port", type=int, default=DEFAULT_PORT)
+    ap.add_argument("--host", default=DEFAULT_HOST)
+    ap.add_argument("--once", action="store_true",
+                    help="print the verdict and exit, no server")
+    a = ap.parse_args()
+
+    if not AGENTS:
+        raise SystemExit("no agents to poll — set FD_AGENTS=host1,host2")
+    if a.once:
+        return print_once()
+
+    # Fail closed. This page is an inventory of the fleet and it is published,
+    # so binding a reachable interface without a password is not a degraded
+    # mode worth having. A restart loop is the better failure.
+    loopback = a.host in ("127.0.0.1", "localhost", "::1")
+    if not AUTH_ON and not loopback and not os.environ.get("FD_ALLOW_NO_AUTH"):
+        raise SystemExit(
+            f"refusing to bind {a.host} with no password set.\n"
+            "Set FD_PASSWORD, provide a systemd credential named 'password', "
+            "or bind 127.0.0.1. Override with FD_ALLOW_NO_AUTH=1 if you mean it.")
+
+    auth = "password required" if AUTH_ON else "NO AUTH (loopback only)"
+    print(f"Fleet dashboard → http://{a.host}:{a.port}   [{auth}]   "
+          f"{len(AGENTS)} agents: {', '.join(AGENTS)}")
+    ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()
