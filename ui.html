@@ -157,6 +157,9 @@ h2{margin:34px 0 12px;font-size:11.5px;font-weight:600;color:var(--muted);
   color:var(--warn)}
 /* A sleeping phone is a standing fact, not a fault — recessive, never amber. */
 .chip.off{color:var(--muted)}
+/* Marks a row that copies an existing backup onward rather than making one. */
+.tag{margin-left:6px;padding:1px 6px;border-radius:999px;background:var(--surface-2);
+  color:var(--muted);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase}
 
 /* ── tables ─────────────────────────────────────────────────────────── */
 .scroll{overflow-x:auto;background:var(--surface);
@@ -367,7 +370,8 @@ function backupRows(d) {
                     : state("bad", esc(b.result || "unknown"));
       rows.push(`<tr>
         <td class="host">${esc(h.host)}</td>
-        <td>${esc(b.job)}</td>
+        <td>${esc(b.job)}${b.kind === "copy"
+          ? ` <span class="tag">copy</span>` : ""}</td>
         <td>${st}</td>
         <td class="${ok ? "dim" : ""}">${esc(ago(b.last))}</td>
         <td class="dim">${esc(dur(b.duration))}</td>
