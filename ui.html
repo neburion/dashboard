@@ -417,6 +417,14 @@ function syncCards(d) {
   return cards.length ? `<div class="grid">${cards.join("")}</div>` : "";
 }
 
+/* A unit name a person would recognise. Only cloudflared needs the help; the
+   full name stays on the row as a tooltip. */
+function unitName(unit) {
+  const u = unit.replace(/\.service$/, "");
+  const cf = u.match(/^cloudflared-tunnel-([0-9a-f]{8})/);
+  return cf ? `cloudflared · ${cf[1]}` : u;
+}
+
 function serviceRows(d) {
   const rows = [];
   for (const h of d.hosts) {
@@ -432,12 +440,17 @@ function serviceRows(d) {
     }
     for (const s of h.services || []) {
       const on = s.active === "active";
+      const name = unitName(s.unit);
+      // cloudflared's units are named for their tunnel UUID and carry no
+      // description, so the row was a 36-character name with the same 36
+      // characters repeated beside it. Shorten the name, drop the echo.
+      const detail = s.description === s.unit ? "" : s.description;
       rows.push(`<tr>
         <td class="host">${esc(h.host)}</td>
-        <td>${esc(s.unit.replace(/\.service$/, ""))}</td>
+        <td title="${esc(s.unit)}">${esc(name)}</td>
         <td class="dim">unit</td>
         <td>${on ? state("ok", esc(s.sub)) : state("bad", esc(s.active))}</td>
-        <td class="dim">${esc(s.description)}</td>
+        <td class="dim">${esc(detail)}</td>
       </tr>`);
     }
   }
