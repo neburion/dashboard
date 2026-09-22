@@ -183,6 +183,43 @@ td.dim{color:var(--muted)}
   font-variant-numeric:tabular-nums}
 .note{margin:12px 0 0;color:var(--muted);font-size:12.5px}
 
+/* ── key/value rows ─────────────────────────────────────────────────── */
+.kv{display:grid;grid-template-columns:auto 1fr;gap:7px 16px;font-size:13px;margin:0}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;color:var(--ink-2);text-align:right;overflow-wrap:anywhere;
+  font-variant-numeric:tabular-nums}
+.kv dd.bad{color:var(--bad)} .kv dd.warn{color:var(--warn)}
+
+/* ── daily bars ─────────────────────────────────────────────────────── */
+/* Thirty days of token spend. No per-bar label on purpose: the shape is what
+   the eye is here for, and the exact figure for one Tuesday is a tooltip's
+   job. A day with no sessions still gets a bar, in the line colour — a gap
+   would read as missing data rather than as a day off. */
+.spark{display:flex;align-items:flex-end;gap:2px;height:54px;margin:15px 0 2px}
+.spark i{flex:1;min-width:2px;display:block;border-radius:2px 2px 0 0;
+  background:var(--m-ok);opacity:.85}
+.spark i.none{background:var(--line);opacity:1;height:2px}
+.spark i:hover{opacity:1}
+.spark-ends{display:flex;justify-content:space-between;color:var(--muted);
+  font-size:11px;font-variant-numeric:tabular-nums}
+
+/* ── console links ──────────────────────────────────────────────────── */
+.links{display:grid;gap:10px;
+  grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+.links a{display:flex;flex-direction:column;gap:3px;padding:14px 16px;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r);color:var(--ink);text-decoration:none}
+.links a:hover{border-color:color-mix(in srgb,var(--ink) 32%,var(--line))}
+.links .lt{font-size:13.5px;font-weight:600}
+.links .ld{font-size:12px;color:var(--muted)}
+
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+/* Porkbun's API terms require attribution wherever their data is shown. */
+.credit{margin:13px 0 0;padding-top:11px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:11.5px}
+.credit a{color:var(--muted)}
+.stale{color:var(--warn)}
+
 .empty{padding:22px;color:var(--muted);font-size:13.5px;text-align:center;
   background:var(--surface);border:1px dashed var(--line);border-radius:var(--r)}
 footer{margin-top:40px;color:var(--muted);font-size:12px;text-align:center}
@@ -216,13 +253,18 @@ footer{margin-top:40px;color:var(--muted);font-size:12px;text-align:center}
   <div class="empty" style="margin-top:28px">Asking the hosts…</div>
 </main>
 
-<footer>Polled from each host's fleet-status agent · no history kept</footer>
+<footer>Hosts polled from each machine's fleet-status agent; accounts read
+  read-only from the registrar and Cloudflare · no history kept</footer>
 
 <script>
 "use strict";
 
 const POLL_MS = 15000;
-let data = null, at = 0, busy = false;
+/* The accounts half is on its own, much slower clock. Nothing there changes
+   between two glances at a page, and the server caches it for hours anyway —
+   asking every 15s would only mean three vendors hear from every open tab. */
+const ACCOUNTS_MS = 300000;
+let data = null, accounts = null, at = 0, busy = false;
 
 /* ── formatting ───────────────────────────────────────────────────────── */
 
@@ -465,6 +507,345 @@ function serviceRows(d) {
     <tbody>${rows.join("")}</tbody></table></div>`;
 }
 
+/* ── accounts ─────────────────────────────────────────────────────────── */
+
+const num = n => (n ?? 0).toLocaleString();
+
+/* Cache reads run into the billions. "2,790,672,868" is not a number anyone
+   reads, it is a length — and three of them in a row stop being comparable. */
+const tok = n => {
+  if (n == null) return "—";
+  if (n < 1000) return String(n);
+  const u = ["k","M","B","T"];
+  let i = -1;
+  while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return n.toFixed(n < 10 ? 1 : 0) + u[i];
+};
+
+/* Whole days until an ISO timestamp, negative once it has passed. */
+const until = iso => {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : Math.floor((t - Date.now()) / 86400000);
+};
+
+const kv = rows => `<dl class="kv">${rows.filter(Boolean).map(
+  ([k, v, cls]) => `<dt>${esc(k)}</dt><dd class="${cls || ""}">${v}</dd>`
+).join("")}</dl>`;
+
+/* ── claude ───────────────────────────────────────────────────────────── */
+
+function claudeSection(d) {
+  const host = d.hosts.find(h => h.claude && !h.claude.error);
+  if (!host) return "";
+  const c = host.claude;
+  const days = Object.keys(c.days || {}).sort().slice(-30);
+  const perDay = days.map(day => Object.values(c.days[day])
+    .reduce((s, m) => s + m.input + m.output + m.cache_read + m.cache_write, 0));
+  const peak = Math.max(1, ...perDay);
+
+  const models = Object.entries(c.models || {})
+    .sort((a, b) => b[1].output - a[1].output);
+  const totals = models.reduce((s, [, m]) => ({
+    output: s.output + m.output,
+    thinking: s.thinking + m.thinking,
+    requests: s.requests + m.requests,
+    read: s.read + m.cache_read,
+    write: s.write + m.cache_write,
+  }), { output: 0, thinking: 0, requests: 0, read: 0, write: 0 });
+
+  return `
+  <h2>Claude</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="top"><span class="name">Spend</span></div>
+      <div class="sub">${esc(host.host)} · ${esc(c.first || "?")} to ${esc(c.last || "?")}</div>
+      <div class="spark">${days.map((day, i) => {
+        const h = Math.round((perDay[i] / peak) * 100);
+        return `<i class="${perDay[i] ? "" : "none"}" style="height:${Math.max(h, 2)}%"
+                   title="${esc(day)}: ${tok(perDay[i])} tokens"></i>`;
+      }).join("")}</div>
+      <div class="spark-ends"><span>${esc(days[0] || "")}</span>
+        <span>${esc(days[days.length - 1] || "")}</span></div>
+      <div class="facts">
+        <span class="chip">${num(c.sessions)} sessions</span>
+        <span class="chip">${num(c.prompts)} prompts</span>
+        <span class="chip">${num(c.tools)} tool calls</span>
+        <span class="chip">${num(totals.requests)} requests</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="top"><span class="name">Tokens</span></div>
+      <div class="sub">all time, as logged</div>
+      ${kv([
+        ["Output", tok(totals.output)],
+        ["of that, thinking", tok(totals.thinking)],
+        ["Cache read", tok(totals.read)],
+        ["Cache written", tok(totals.write)],
+      ])}
+      <p class="note">An estimate. A subscription has no usage endpoint, so
+        these come from the transcripts Claude Code writes locally — the same
+        source its own stats view reads, and not a bill.</p>
+    </div>
+
+    ${models.map(([name, m]) => `
+    <div class="card">
+      <div class="top"><span class="name">${esc(name.replace(/^claude-/, ""))}</span></div>
+      <div class="sub">${num(m.requests)} requests</div>
+      ${kv([
+        ["Output", tok(m.output)],
+        ["Thinking", tok(m.thinking)],
+        ["Cache read", tok(m.cache_read)],
+        ["Cache written", tok(m.cache_write)],
+        m.web_search ? ["Web searches", num(m.web_search)] : null,
+      ])}
+    </div>`).join("")}
+  </div>`;
+}
+
+/* ── tailscale ────────────────────────────────────────────────────────── */
+
+function tailscaleSection(d) {
+  /* Every host reports the same mesh from its own vantage point. One view is
+     enough to draw it; the one taken from a reachable host is the one that is
+     not itself a guess. */
+  const host = d.hosts.find(h => h.tailnet && h.tailnet.peers && !h.tailnet.error);
+  if (!host) return "";
+  const t = host.tailnet;
+  const nodes = [t.node, ...t.peers].filter(Boolean);
+
+  const rows = nodes.map(n => {
+    const left = until(n.key_expiry);
+    const kind = n.online ? "ok" : "idle";
+    /* A node key is the one thing here with a deadline. Thirty days is enough
+       warning to re-authenticate at leisure; past that it is an outage with a
+       date on it. */
+    const keyCls = left == null ? "" : left < 0 ? "bad" : left < 30 ? "warn" : "";
+    return `<tr>
+      <td class="host">${esc(n.name)}${n.self ? `<span class="tag">this view</span>` : ""}</td>
+      <td>${state(kind, n.online ? "online" : "offline")}</td>
+      <td class="dim">${esc(n.os || "—")}</td>
+      <td class="mono dim">${esc((n.ips || [])[0] || "—")}</td>
+      <td class="${keyCls}">${left == null ? "—"
+        : left < 0 ? "expired" : left + "d"}</td>
+      <td class="dim">${n.exit_node ? "exit node" : n.offers_exit ? "offers exit" : "—"}</td>
+      <td class="dim">${bytes(n.rx)} / ${bytes(n.tx)}</td>
+    </tr>`;
+  }).join("");
+
+  return `
+  <h2>Tailscale</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Node</th><th>State</th><th>OS</th><th>Address</th>
+      <th>Key expires</th><th>Exit</th><th>Rx / Tx</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+  <p class="note">${esc(t.tailnet || "tailnet")} · MagicDNS
+    <span class="mono">${esc(t.magic_dns || "—")}</span> · client
+    ${esc(t.version || "?")} · read from each host's own daemon, not the
+    Tailscale API — ACLs and DNS settings live there and are not shown.</p>`;
+}
+
+/* ── domain and mail ──────────────────────────────────────────────────── */
+
+function domainCard(a) {
+  const d = a.domain || {};
+  if (d.configured === false) {
+    return `<div class="card"><div class="top"><span class="name">Domain</span></div>
+      <div class="sub">no registrar credentials</div>
+      <p class="note">Add the Porkbun key pair and this fills in.</p></div>`;
+  }
+  if (d.error && !d.domain) {
+    return `<div class="card down"><div class="top"><span class="name">Domain</span>
+      ${state("bad", "unreadable")}</div>
+      <div class="sub">${esc(d.error)}</div></div>`;
+  }
+  const left = d.days_left;
+  /* A registration is the one dependency with no failover: every hostname,
+     every tunnel and the mail hang off it. Sixty days is the point where
+     renewing stops being automatic-if-nothing-breaks and starts being a task. */
+  const kind = left == null ? "idle" : left < 14 ? "bad" : left < 60 ? "warn" : "ok";
+  return `
+  <div class="card">
+    <div class="top"><span class="name">${esc(d.domain || "domain")}</span>
+      ${state(kind, left == null ? "unknown" : left + " days left")}</div>
+    <div class="sub">${esc(d.registrar || "")} · ${esc(d.status || "")}</div>
+    ${meter("Registration", (d.expires || "").slice(0, 10),
+            left == null ? 0 : Math.max(0, 100 - (left / 365) * 100),
+            kind === "idle" ? "ok" : kind)}
+    ${kv([
+      ["Auto-renew", d.auto_renew ? "on" : "<b>off</b>", d.auto_renew ? "" : "bad"],
+      ["Registrar lock", d.locked ? "on" : "off", d.locked ? "" : "warn"],
+      ["WHOIS privacy", d.whois_privacy ? "on" : "off"],
+      d.renewal ? ["Renews at", "$" + esc(d.renewal)] : null,
+      ["Registered", esc((d.registered || "").slice(0, 10))],
+      ["Nameservers", (d.nameservers || []).map(esc).join("<br>") || "—"],
+    ])}
+    ${d.error ? `<p class="note stale">Last reading stale: ${esc(d.error)}</p>` : ""}
+    <p class="credit">Registration data via
+      <a href="https://porkbun.com" target="_blank" rel="noopener">Porkbun</a>.</p>
+  </div>`;
+}
+
+function mailCard(a) {
+  const cf = a.cloudflare || {};
+  if (cf.configured === false) {
+    return `<div class="card"><div class="top"><span class="name">Mail</span></div>
+      <div class="sub">no Cloudflare token</div></div>`;
+  }
+  const m = cf.email;
+  if (!m) {
+    return `<div class="card down"><div class="top"><span class="name">Mail</span>
+      ${state("bad", "unreadable")}</div>
+      <div class="sub">${esc(cf.error || "no answer")}</div></div>`;
+  }
+  const ok = m.enabled && m.status === "ready";
+  return `
+  <div class="card">
+    <div class="top"><span class="name">Mail routing</span>
+      ${state(ok ? "ok" : "bad", ok ? "ready" : (m.status || "off"))}</div>
+    <div class="sub">${esc((cf.zone || {}).name || "")}</div>
+    ${kv([
+      ["Catch-all", m.catch_all.enabled
+        ? esc((m.catch_all.to || []).join(", ") || "on, no target")
+        : "<b>disabled</b>", m.catch_all.enabled ? "" : "bad"],
+      ["Named rules", String((m.rules || []).length)],
+    ])}
+    ${(m.rules || []).map(r => `
+      <div class="peer"><span class="pn">${esc(r.match.join(", ") || r.name)}</span>
+        <span class="pv">${esc(r.to.join(", "))}</span></div>`).join("")}
+    <p class="note">A rule that gets switched off does not bounce mail, it
+      drops it — which is why every one is listed rather than counted.</p>
+  </div>`;
+}
+
+function zoneCard(a) {
+  const z = (a.cloudflare || {}).zone;
+  if (!z) return "";
+  return `
+  <div class="card">
+    <div class="top"><span class="name">Zone</span>
+      ${state(z.status === "active" && !z.paused ? "ok" : "warn",
+              z.paused ? "paused" : (z.status || "?"))}</div>
+    <div class="sub">Cloudflare · ${esc(z.plan || "")}</div>
+    ${kv([
+      ["DNS records", String(z.records)],
+      ["Active since", esc((z.activated || "").slice(0, 10))],
+      ["Nameservers", (z.nameservers || []).map(esc).join("<br>") || "—"],
+    ])}
+  </div>`;
+}
+
+/* ── storage ──────────────────────────────────────────────────────────── */
+
+function storageSection(d, a) {
+  const r2 = (a.cloudflare || {}).r2;
+  const b2host = d.hosts.find(h => h.b2 && !h.b2.error && h.b2.bucket);
+  const b2 = b2host && b2host.b2;
+  if (!r2 && !b2) return "";
+
+  const r2pct = r2 ? (r2.bytes / r2.free_bytes) * 100 : 0;
+  return `
+  <h2>Object storage</h2>
+  <div class="grid">
+    ${r2 ? `
+    <div class="card">
+      <div class="top"><span class="name">R2</span>
+        ${state(sev(r2pct), r2pct < 1 ? "well inside free tier"
+                                      : r2pct.toFixed(0) + "% of free tier")}</div>
+      <div class="sub">Cloudflare · ${r2.buckets.length} bucket${
+        r2.buckets.length === 1 ? "" : "s"}</div>
+      ${meter("Stored", bytes(r2.bytes) + " / " + bytes(r2.free_bytes), r2pct)}
+      ${r2.buckets.map(b => kv([
+        [b.name, bytes(b.bytes) + " · " + num(b.objects) + " objects"],
+      ])).join("")}
+      <p class="note">Ten gigabytes is where the bill stops being zero.
+        Nothing enforces it.</p>
+    </div>` : ""}
+
+    ${b2 ? `
+    <div class="card">
+      <div class="top"><span class="name">B2</span>${state("ok", "reachable")}</div>
+      <div class="sub">Backblaze · ${esc(b2.bucket)}</div>
+      ${kv([
+        ["Stored", bytes(b2.bytes)],
+        ["Objects", num(b2.objects)],
+        ["Newest upload", b2.newest ? ago(b2.newest) : "—"],
+        ["Bucket type", esc(b2.type || "—")],
+        ["Deletes after", (b2.lifecycle || []).length
+          ? (n => n + (n === 1 ? " day hidden" : " days hidden"))(
+              (b2.lifecycle[0] || {}).daysFromHidingToDeleting)
+          : "no rule"],
+      ])}
+      <p class="note">Read by the agent on ${esc(b2host.host)}, which already
+        holds the key. Backblaze publishes no billing API, so the account's
+        caps and spend are not here — only this bucket.</p>
+    </div>` : ""}
+  </div>`;
+}
+
+/* ── credentials ──────────────────────────────────────────────────────── */
+
+function secretsSection(d) {
+  const hosts = d.hosts.filter(h => Array.isArray(h.secrets) && h.secrets.length);
+  if (!hosts.length) return "";
+  const total = new Set();
+  hosts.forEach(h => h.secrets.forEach(s => total.add(s.name)));
+  return `
+  <h2>Credentials</h2>
+  <div class="grid">
+    ${hosts.map(h => `
+    <div class="card">
+      <div class="top"><span class="name">${esc(h.host)}</span></div>
+      <div class="sub">${h.secrets.length} deployed</div>
+      ${h.secrets.map(s => `<div class="peer">
+        <span class="pn mono" style="min-width:0;flex:1">${esc(s.name)}</span>
+        <span class="pv">${esc(s.mode)}</span></div>`).join("")}
+    </div>`).join("")}
+  </div>
+  <p class="note">${total.size} distinct keys across ${hosts.length} hosts.
+    Names only — the values sit 0400 root beside them and are never read by
+    the agent, which is the only reason this can be shown at all.</p>`;
+}
+
+/* ── consoles ─────────────────────────────────────────────────────────── */
+
+/* The point of this row is that nobody should have to remember which of five
+   vendors owns which piece, or keep the URLs in a bookmarks folder that only
+   exists on one laptop. */
+const CONSOLES = [
+  ["Cloudflare", "https://dash.cloudflare.com", "DNS, tunnels, R2, mail routing"],
+  ["Porkbun", "https://porkbun.com/account/domainsSpeedy", "the registration itself"],
+  ["Backblaze B2", "https://secure.backblaze.com/b2_buckets.htm", "backup bucket, caps and spend"],
+  ["Tailscale", "https://login.tailscale.com/admin/machines", "ACLs, keys, DNS"],
+  ["Claude", "https://claude.ai/settings/usage", "plan usage and limits"],
+  ["GitHub", "https://github.com/neburion?tab=repositories", "this app and the flake pins"],
+];
+
+function consoleSection() {
+  return `
+  <h2>Consoles</h2>
+  <div class="links">
+    ${CONSOLES.map(([name, href, what]) => `
+    <a href="${esc(href)}" target="_blank" rel="noopener">
+      <span class="lt">${esc(name)}</span>
+      <span class="ld">${esc(what)}</span>
+    </a>`).join("")}
+  </div>`;
+}
+
+function accountsSection(d) {
+  if (!accounts) return "";
+  return `
+  <h2>Domain and mail</h2>
+  <div class="grid">
+    ${domainCard(accounts)}
+    ${mailCard(accounts)}
+    ${zoneCard(accounts)}
+  </div>
+  ${storageSection(d, accounts)}`;
+}
+
 /* ── render ───────────────────────────────────────────────────────────── */
 
 function render() {
@@ -478,7 +859,12 @@ function render() {
     ${backupRows(data)}
     ${sync ? `<h2>Sync</h2>${sync}` : ""}
     <h2>Services</h2>
-    ${serviceRows(data)}`;
+    ${serviceRows(data)}
+    ${claudeSection(data)}
+    ${tailscaleSection(data)}
+    ${accountsSection(data)}
+    ${secretsSection(data)}
+    ${consoleSection()}`;
   tick();
 }
 
@@ -514,14 +900,32 @@ async function load(force) {
   }
 }
 
-document.getElementById("refresh").addEventListener("click", () => load(true));
+async function loadAccounts(force) {
+  try {
+    const r = await fetch("/api/accounts" + (force ? "?force=1" : ""),
+                          { headers: { "Accept": "application/json" } });
+    if (r.status === 401) { location.href = "/login"; return; }
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    accounts = await r.json();
+    render();
+  } catch (e) {
+    // A vendor being unreachable is not a reason to stop drawing the fleet.
+  }
+}
+
+document.getElementById("refresh").addEventListener("click", () => {
+  load(true);
+  loadAccounts(true);
+});
 // Coming back to a backgrounded tab should not show a stale page for 15s.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") load(false);
 });
 setInterval(() => load(false), POLL_MS);
+setInterval(() => loadAccounts(false), ACCOUNTS_MS);
 setInterval(tick, 1000);
 load(false);
+loadAccounts(false);
 </script>
 </body>
 </html>

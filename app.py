@@ -292,6 +292,246 @@ def poll(force=False):
     return value
 
 
+# ----------------------------------------------------------------- the vendor
+#
+# The half of this that is not a machine. Three accounts hold things the fleet
+# depends on and cannot see for itself: who the domain is registered with and
+# until when, where mail addressed to it goes, what the object store is
+# holding.
+#
+# Read-only, deliberately. The Cloudflare credential here is a scoped token
+# with six read permissions — not the account's Global API Key, which can do
+# anything and has no business inside a process that answers a public URL. A
+# write through this token comes back "Authentication error", which is the
+# point.
+#
+# Backblaze is absent on purpose. Its key can delete files, so that call is
+# made by the agent on the host that already holds the key for restic's sake,
+# and only the counts travel. See the b2 probe in the fleet-status collector.
+#
+# Everything here is cached for hours. The page polls every 15s and a domain's
+# expiry date does not move at that speed; three vendors should not hear from
+# every tab somebody leaves open.
+
+PORKBUN_KEY = _credential("porkbun-api-key", "DASH_PORKBUN_API_KEY")
+PORKBUN_SECRET = _credential("porkbun-secret-key", "DASH_PORKBUN_SECRET_KEY")
+CF_TOKEN = _credential("cloudflare-token", "DASH_CLOUDFLARE_TOKEN")
+CF_ACCOUNT = os.environ.get("DASH_CF_ACCOUNT", "")
+ZONE = os.environ.get("DASH_ZONE", "azuresalt.app")
+
+PORKBUN_API = "https://api.porkbun.com/api/json/v3"
+CF_API = "https://api.cloudflare.com/client/v4"
+
+# Cloudflare's free R2 allowance, for the meter. Nothing enforces this — it is
+# the line past which the bill stops being zero.
+R2_FREE_BYTES = 10 * 1024 ** 3
+
+_vendor = {}
+_vendor_lock = threading.Lock()
+
+
+def vendor(name, ttl, fn):
+    """Call fn at most once per ttl, and never let it take the page down.
+
+    A vendor that is down, rate-limiting, or slow is not an outage here — the
+    last good answer keeps being served, marked with how old it is. The failure
+    is reported beside it rather than in place of it, because "Cloudflare did
+    not answer just now" and "you have no domain" should not look the same.
+    """
+    now = time.time()
+    with _vendor_lock:
+        entry = _vendor.get(name)
+        if entry and now - entry["at"] < ttl:
+            return entry["value"]
+    try:
+        value = {"at": int(now), **fn()}
+    except Exception as e:                               # noqa: BLE001
+        with _vendor_lock:
+            entry = _vendor.get(name)
+        stale = dict(entry["value"]) if entry else {"at": int(now)}
+        stale["error"] = f"{type(e).__name__}: {e}"
+        return stale
+    with _vendor_lock:
+        _vendor[name] = {"at": now, "value": value}
+    return value
+
+
+def _post_json(url, payload, timeout=15):
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
+def _cf(path, timeout=15):
+    req = urllib.request.Request(
+        CF_API + path, headers={"Authorization": f"Bearer {CF_TOKEN}"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        body = json.load(r)
+    if not body.get("success"):
+        raise RuntimeError("; ".join(e.get("message", "?")
+                                     for e in body.get("errors") or []) or "failed")
+    return body["result"]
+
+
+def domain():
+    """The registration itself, from Porkbun.
+
+    This is the one fact in the whole fleet with a hard deadline and no
+    fallback: every hostname, every tunnel and the mail all hang off one
+    registration that lapses on a date. Nothing else on this page can tell you
+    that date, because nothing else knows who the registrar is.
+    """
+    if not PORKBUN_KEY or not PORKBUN_SECRET:
+        return {"configured": False}
+    auth = {"apikey": PORKBUN_KEY, "secretapikey": PORKBUN_SECRET}
+
+    listing = _post_json(f"{PORKBUN_API}/domain/listAll", auth)
+    if listing.get("status") != "SUCCESS":
+        raise RuntimeError(listing.get("message", "listAll failed"))
+    rows = [d for d in listing.get("domains", []) if d["domain"] == ZONE]
+    if not rows:
+        # The account-wide opt-in is a single switch on the API page, and with
+        # it off the domain is simply not in the answer — not an error, just
+        # absent, which is a worse thing to debug.
+        raise RuntimeError(f"{ZONE} is not opted in to API access")
+    d = rows[0]
+
+    ns = _post_json(f"{PORKBUN_API}/domain/getNs/{ZONE}", auth)
+    price = {}
+    try:
+        tld = ZONE.rsplit(".", 1)[-1]
+        # 25s, not the usual 15: the pricing table is the slowest thing
+        # Porkbun serves, around nine seconds on a good day. It is cached for
+        # six hours, so waiting is free and timing out costs the one number
+        # that says what the renewal will actually charge.
+        with urllib.request.urlopen(f"{PORKBUN_API}/pricing/get", timeout=25) as r:
+            price = (json.load(r).get("pricing") or {}).get(tld) or {}
+    except Exception:                                    # noqa: BLE001
+        price = {}                                       # a nice-to-have only
+
+    expires = d.get("expireDate", "")
+    left = None
+    if expires:
+        exp = time.mktime(time.strptime(expires, "%Y-%m-%d %H:%M:%S"))
+        left = int((exp - time.time()) / 86400)
+    return {
+        "configured": True,
+        "domain": d["domain"],
+        "status": d.get("status"),
+        "registered": d.get("createDate"),
+        "expires": expires,
+        "days_left": left,
+        "auto_renew": bool(int(d.get("autoRenew", 0))),
+        "locked": bool(int(d.get("securityLock", 0))),
+        "whois_privacy": bool(int(d.get("whoisPrivacy", 0))),
+        "nameservers": ns.get("ns", []),
+        "renewal": price.get("renewal"),
+        "registrar": "Porkbun",
+    }
+
+
+def cloudflare():
+    """The zone, its mail routing, and the object store.
+
+    Mail is the part worth watching: a routing rule that gets disabled does not
+    bounce anything, it drops it. The rules are listed in full rather than
+    summarised to a count for that reason — a count of one looks identical
+    whether the rule forwards to the right address or to nothing.
+    """
+    if not CF_TOKEN or not CF_ACCOUNT:
+        return {"configured": False}
+
+    zones = _cf(f"/zones?name={ZONE}")
+    if not zones:
+        raise RuntimeError(f"zone {ZONE} not visible to this token")
+    z = zones[0]
+    zid = z["id"]
+
+    routing = _cf(f"/zones/{zid}/email/routing")
+    rules = _cf(f"/zones/{zid}/email/routing/rules")
+    catch_all = _cf(f"/zones/{zid}/email/routing/rules/catch_all")
+
+    def targets(rule):
+        out = []
+        for a in rule.get("actions") or []:
+            out += [v for v in (a.get("value") or [])]
+        return out
+
+    buckets = []
+    total = 0
+    for b in (_cf(f"/accounts/{CF_ACCOUNT}/r2/buckets") or {}).get("buckets", []):
+        u = _cf(f"/accounts/{CF_ACCOUNT}/r2/buckets/{b['name']}/usage")
+        size = int(u.get("payloadSize") or 0)
+        total += size
+        buckets.append({
+            "name": b["name"],
+            "created": b.get("creation_date"),
+            "location": b.get("location"),
+            "bytes": size,
+            "objects": int(u.get("objectCount") or 0),
+        })
+
+    return {
+        "configured": True,
+        "zone": {
+            "name": z["name"],
+            "status": z.get("status"),
+            "paused": z.get("paused"),
+            "plan": (z.get("plan") or {}).get("name"),
+            "activated": z.get("activated_on"),
+            "nameservers": z.get("name_servers") or [],
+            "records": len(_cf(f"/zones/{zid}/dns_records?per_page=100") or []),
+        },
+        "email": {
+            "enabled": routing.get("enabled"),
+            "status": routing.get("status"),
+            # Destination-address verification is not readable here: Cloudflare
+            # refuses the account-level addresses endpoint to a scoped token
+            # whatever permissions it carries. The forward target below is the
+            # same address, so nothing on the page is missing — only the tick
+            # that says the address confirmed itself.
+            "catch_all": {
+                "enabled": catch_all.get("enabled"),
+                "to": targets(catch_all),
+            },
+            # The catch-all comes back in this list too, as a nameless rule
+            # matching "all". It already has its own row above, and drawing it
+            # twice would read as two rules where there is one.
+            "rules": [{
+                "name": r.get("name") or "(unnamed)",
+                "enabled": r.get("enabled"),
+                "match": [m.get("value") for m in (r.get("matchers") or [])],
+                "to": targets(r),
+            } for r in (rules or [])
+                if not any((m.get("type") == "all")
+                           for m in (r.get("matchers") or []))],
+        },
+        "r2": {
+            "buckets": buckets,
+            "bytes": total,
+            "free_bytes": R2_FREE_BYTES,
+        },
+    }
+
+
+def accounts(force=False):
+    """Everything vendor-side, in one answer, each piece on its own clock."""
+    if force:
+        with _vendor_lock:
+            _vendor.clear()
+    return {
+        "at": int(time.time()),
+        # Six hours: a registration date moves once a year, and the renewal
+        # price about as often.
+        "domain": vendor("domain", 6 * 3600, domain),
+        # Fifteen minutes: mail routing is the one thing here somebody might
+        # change and want to see reflected without waiting for lunch.
+        "cloudflare": vendor("cloudflare", 900, cloudflare),
+    }
+
+
 # ------------------------------------------------------------------ verdicts
 #
 # The page's whole reason to exist is the top band, and a band that cries wolf
@@ -518,6 +758,13 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/status":
             force = (parse_qs(u.query).get("force") or ["0"])[0] == "1"
             return self._send(poll(force))
+
+        # Separate from /api/status on purpose. The hosts are polled every 15s
+        # and have to stay quick; the vendors are cached for hours and would
+        # otherwise make every fleet refresh drag three accounts behind it.
+        if u.path == "/api/accounts":
+            force = (parse_qs(u.query).get("force") or ["0"])[0] == "1"
+            return self._send(accounts(force))
 
         return self.send_error(404, "not found")
 

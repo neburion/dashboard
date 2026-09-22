@@ -1,6 +1,6 @@
 {
   "name": "dashboard",
-  "summary": "The fleet at a glance — hosts, syncs, backups, and whatever is wrong",
+  "summary": "The fleet at a glance — hosts, syncs, backups, accounts, and whatever is wrong",
   "runtime": "python3",
   "run": "app.py",
   "port": 8779,
@@ -10,11 +10,16 @@
   "state": false,
   "secrets": [
     "password",
-    "username"
+    "username",
+    "porkbun-api-key",
+    "porkbun-secret-key",
+    "cloudflare-token"
   ],
   "env": {
     "DASH_HOST": "0.0.0.0",
     "DASH_PORT": "$PORT",
-    "DASH_AGENTS": "pod042,home-server,personal-server"
+    "DASH_AGENTS": "pod042,home-server,personal-server",
+    "DASH_CF_ACCOUNT": "9d41f4bba622cd7819f194785e1b9155",
+    "DASH_ZONE": "azuresalt.app"
   }
 }
