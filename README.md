@@ -1,4 +1,4 @@
-# fleet-dashboard
+# dashboard
 
 Three machines on one page. Hosts, backups, syncs, apps, and a band at the top
 that is empty when nothing is wrong.
@@ -29,17 +29,17 @@ is that host's outage. Everything else degrades to one unreachable card.
 
 ```
 python3 app.py                     # http://127.0.0.1:8779, no auth
-FD_AGENTS=pod042,home-server python3 app.py
+DASH_AGENTS=pod042,home-server python3 app.py
 python3 app.py --once              # the verdict, in a terminal, no server
 ```
 
 | Env | Default | |
 |---|---|---|
-| `FD_AGENTS` | — | comma-separated hosts to poll; required |
-| `FD_AGENT_PORT` | `8081` | where the agent listens |
-| `FD_HOST` / `FD_PORT` | `127.0.0.1` / `8779` | bind |
-| `FD_PASSWORD` / `FD_USERNAME` | — | login, when not run under systemd |
-| `FD_UI` | `./ui.html` | the page |
+| `DASH_AGENTS` | — | comma-separated hosts to poll; required |
+| `DASH_AGENT_PORT` | `8081` | where the agent listens |
+| `DASH_HOST` / `DASH_PORT` | `127.0.0.1` / `8779` | bind |
+| `DASH_PASSWORD` / `DASH_USERNAME` | — | login, when not run under systemd |
+| `DASH_UI` | `./ui.html` | the page |
 
 Deployed, both halves of the login arrive as systemd credentials from sops.
 Binding anything but loopback without a password is refused — the page is an

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fleet dashboard — three machines on one page.
+"""Dashboard — three machines on one page.
 
 Stdlib only: no Flask, no pip. Polls the fleet-status agent on each host over
 the tailnet, works out what is wrong, and serves that plus the UI in ui.html.
@@ -14,7 +14,7 @@ this can be is out of date by `CACHE_TTL` seconds, and a restart loses nothing
 because there was nothing to lose.
 
 Auth is the same login screen the two trackers use, for the same reason — this
-is published at fleet.azuresalt.app, and it is an inventory of what the fleet
+is published at dashboard.azuresalt.app, and it is an inventory of what the fleet
 runs and where. See the auth section.
 
 What it cannot tell you: whether personal-server is up, because that is where
@@ -40,14 +40,14 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode
 
 HERE = Path(__file__).resolve().parent
-UI = Path(os.environ.get("FD_UI") or HERE / "ui.html")
+UI = Path(os.environ.get("DASH_UI") or HERE / "ui.html")
 
-AGENTS = [h for h in (os.environ.get("FD_AGENTS") or "").split(",") if h.strip()]
-AGENT_PORT = int(os.environ.get("FD_AGENT_PORT", "8081"))
+AGENTS = [h for h in (os.environ.get("DASH_AGENTS") or "").split(",") if h.strip()]
+AGENT_PORT = int(os.environ.get("DASH_AGENT_PORT", "8081"))
 AGENT_TIMEOUT = 5
 
-DEFAULT_HOST = os.environ.get("FD_HOST", "127.0.0.1")
-DEFAULT_PORT = int(os.environ.get("FD_PORT", "8779"))
+DEFAULT_HOST = os.environ.get("DASH_HOST", "127.0.0.1")
+DEFAULT_PORT = int(os.environ.get("DASH_PORT", "8779"))
 
 # Three HTTP round trips over the tailnet per page load, and the agents only
 # take a fresh reading every 30s anyway — so polling harder than this buys
@@ -79,8 +79,8 @@ def _credential(name, env, fallback=""):
     return (os.environ.get(env) or fallback).strip()
 
 
-PASSWORD = _credential("password", "FD_PASSWORD")
-USERNAME = _credential("username", "FD_USERNAME", "fleet")
+PASSWORD = _credential("password", "DASH_PASSWORD")
+USERNAME = _credential("username", "DASH_USERNAME", "dashboard")
 AUTH_ON = bool(PASSWORD)
 
 RATE_WINDOW = 3600
@@ -141,7 +141,7 @@ def check_auth(header, ip):
 # across a restart. The key is derived from the password, so rotating the sops
 # secret invalidates every cookie in the wild for free.
 
-SESSION_COOKIE = "fd_session"
+SESSION_COOKIE = "dash_session"
 SESSION_TTL = 30 * DAY
 SESSION_REFRESH = 21 * DAY
 
@@ -187,7 +187,7 @@ _LOGIN_HTML = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title>Fleet</title>
+<title>Dashboard</title>
 <style>
 :root{
   --bg:#0b0d10; --panel:#14171c; --line:#232830;
@@ -213,7 +213,7 @@ button{width:100%;padding:10px;background:var(--accent);border:0;border-radius:8
 </head>
 <body>
 <form method="post" action="/login">
-  <h1>Fleet</h1>
+  <h1>Dashboard</h1>
   <p class="sub">__SUB__</p>
   __ERR__
   <input type="hidden" name="next" value="__NEXT__">
@@ -391,7 +391,7 @@ def alerts(hosts):
 # -------------------------------------------------------------------- server
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "fleet-dashboard"
+    server_version = "dashboard"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *a):
@@ -515,7 +515,7 @@ class Handler(BaseHTTPRequestHandler):
             except FileNotFoundError:
                 return self.send_error(500, "ui.html missing")
 
-        if u.path == "/api/fleet":
+        if u.path == "/api/status":
             force = (parse_qs(u.query).get("force") or ["0"])[0] == "1"
             return self._send(poll(force))
 
@@ -561,7 +561,7 @@ def print_once():
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Fleet dashboard")
+    ap = argparse.ArgumentParser(description="Dashboard")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--once", action="store_true",
@@ -569,7 +569,7 @@ def main():
     a = ap.parse_args()
 
     if not AGENTS:
-        raise SystemExit("no agents to poll — set FD_AGENTS=host1,host2")
+        raise SystemExit("no agents to poll — set DASH_AGENTS=host1,host2")
     if a.once:
         return print_once()
 
@@ -577,14 +577,14 @@ def main():
     # so binding a reachable interface without a password is not a degraded
     # mode worth having. A restart loop is the better failure.
     loopback = a.host in ("127.0.0.1", "localhost", "::1")
-    if not AUTH_ON and not loopback and not os.environ.get("FD_ALLOW_NO_AUTH"):
+    if not AUTH_ON and not loopback and not os.environ.get("DASH_ALLOW_NO_AUTH"):
         raise SystemExit(
             f"refusing to bind {a.host} with no password set.\n"
-            "Set FD_PASSWORD, provide a systemd credential named 'password', "
-            "or bind 127.0.0.1. Override with FD_ALLOW_NO_AUTH=1 if you mean it.")
+            "Set DASH_PASSWORD, provide a systemd credential named 'password', "
+            "or bind 127.0.0.1. Override with DASH_ALLOW_NO_AUTH=1 if you mean it.")
 
     auth = "password required" if AUTH_ON else "NO AUTH (loopback only)"
-    print(f"Fleet dashboard → http://{a.host}:{a.port}   [{auth}]   "
+    print(f"Dashboard → http://{a.host}:{a.port}   [{auth}]   "
           f"{len(AGENTS)} agents: {', '.join(AGENTS)}")
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 

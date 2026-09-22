@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0d0d0d">
-<title>Fleet</title>
+<title>Dashboard</title>
 <style>
 /* Dark only, on purpose. The two trackers this sits beside are dark, and the
    page is read on a phone at night as often as at a desk — a light mode nobody
@@ -204,7 +204,7 @@ footer{margin-top:40px;color:var(--muted);font-size:12px;text-align:center}
 
 <header>
   <div class="wrap bar">
-    <span class="mark">Fleet</span>
+    <span class="mark">Dashboard</span>
     <span class="pulse" id="pulse"></span>
     <span class="spacer"></span>
     <span class="stamp" id="stamp">loading…</span>
@@ -213,7 +213,7 @@ footer{margin-top:40px;color:var(--muted);font-size:12px;text-align:center}
 </header>
 
 <main class="wrap" id="main">
-  <div class="empty" style="margin-top:28px">Asking the fleet…</div>
+  <div class="empty" style="margin-top:28px">Asking the hosts…</div>
 </main>
 
 <footer>Polled from each host's fleet-status agent · no history kept</footer>
@@ -495,7 +495,7 @@ async function load(force) {
   btn.disabled = true;
   document.getElementById("pulse").classList.remove("off");
   try {
-    const r = await fetch("/api/fleet" + (force ? "?force=1" : ""),
+    const r = await fetch("/api/status" + (force ? "?force=1" : ""),
                           { headers: { "Accept": "application/json" } });
     // The session can expire while a tab is left open overnight; the API says
     // 401 and the page would otherwise sit there showing yesterday.
