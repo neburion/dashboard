@@ -4,236 +4,195 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0d0d0d">
+<meta name="theme-color" content="#0b0b0c">
 <title>Dashboard</title>
 <style>
-/* Dark only, on purpose. The two trackers this sits beside are dark, and the
-   page is read on a phone at night as often as at a desk — a light mode nobody
-   asked for is a second palette to keep honest for no one. */
+/* Instrument, in Ink. Square hairline frames on a grid; the figure is large
+   and the label beside it is small, letterspaced and quiet.
+
+   Dark only, on purpose — the two trackers this sits beside are dark and the
+   page is read on a phone at night as often as at a desk.
+
+   ── the whole palette ─────────────────────────────────────────────────────
+   Change a colour here and the page follows; nothing below names a colour
+   directly. --accent is the identity, and it is red, which is why it is kept
+   off anything that carries a reading: a red bar on this page always means
+   something is wrong, never that something is normal. Healthy meters use
+   --meter, which is deliberately not a signal colour at all. */
 :root{
   color-scheme: dark;
-  --plane:#0d0d0d;          /* page */
-  --surface:#161719;        /* cards */
-  --surface-2:#1d1f22;      /* insets */
-  --line:#2c2c2a;           /* hairline */
-  --ink:#ffffff;
-  --ink-2:#c3c2b7;
-  --muted:#898781;
+  --bg:#0b0b0c;
+  --panel:#141416;
+  --rule:#272729;
+  --ink:#eeeeef;
+  --dim:#82828a;
+  --accent:#d4483c;
 
-  /* Status. Fixed roles, never reused as decoration. Red and green are four
-     ΔE apart under deuteranopia, so every state also carries a glyph and a
-     word — the colour is the third channel here, not the only one. */
-  --ok:#0ca30c;
-  --warn:#fab219;
-  --bad:#d03b3b;
+  --ok:#4a9d6e;
+  --warn:#cf9a2e;
+  --bad:#d4483c;
+  --meter:#5d6b7a;
 
-  /* Meters: fill carries severity, track is a darker step of the same hue so
-     the state reads across the whole bar rather than only the filled part. */
-  --m-ok:#3987e5;   --m-ok-track:#16305a;
-  --m-warn:#fab219; --m-warn-track:#4a3606;
-  --m-bad:#d03b3b;  --m-bad-track:#45191a;
-
-  --r:14px;
-  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --sans:Geist,ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
-*{box-sizing:border-box}
+*{box-sizing:border-box;margin:0;padding:0}
 html,body{overflow-x:hidden}
 body{
-  margin:0;background:var(--plane);color:var(--ink);
+  background:var(--bg);color:var(--ink);
   font:400 15px/1.55 var(--sans);
   -webkit-font-smoothing:antialiased;
-  padding:0 0 64px;
+  font-variant-numeric:tabular-nums;
+  padding:0 0 60px;
 }
-.wrap{width:min(1180px,calc(100vw - 32px));margin:0 auto}
+.wrap{width:min(1320px,calc(100vw - 28px));margin:0 auto}
 
 /* ── header ─────────────────────────────────────────────────────────── */
 header{
   position:sticky;top:0;z-index:20;
-  background:color-mix(in srgb,var(--plane) 88%,transparent);
+  background:color-mix(in srgb,var(--bg) 90%,transparent);
   backdrop-filter:blur(12px);
-  border-bottom:1px solid var(--line);
+  border-bottom:1px solid var(--rule);
 }
-.bar{display:flex;align-items:center;gap:14px;padding:14px 0}
-.mark{font-size:15px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
+.bar{display:flex;align-items:center;gap:12px;padding:13px 0}
+.mark{font:500 12px/1 var(--mono);letter-spacing:.26em;text-transform:uppercase;
+  color:var(--accent)}
 .spacer{flex:1}
-.stamp{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
-.pulse{width:7px;height:7px;border-radius:50%;background:var(--ok);
-  box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent);
-  animation:pulse 2.6s ease-out infinite}
-.pulse.off{background:var(--muted);animation:none;box-shadow:none}
-@keyframes pulse{
-  0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}
-  70%{box-shadow:0 0 0 7px transparent}
-  100%{box-shadow:0 0 0 0 transparent}
+.stamp{color:var(--dim);font:11.5px/1 var(--mono)}
+.pulse{width:6px;height:6px;background:var(--ok)}
+.pulse.off{background:var(--bad)}
+button{
+  padding:6px 13px;background:transparent;border:1px solid var(--rule);
+  color:var(--ink);font:500 11px/1 var(--mono);letter-spacing:.14em;
+  text-transform:uppercase;cursor:pointer;
 }
-button.ghost{
-  padding:6px 12px;background:transparent;border:1px solid var(--line);
-  border-radius:8px;color:var(--ink-2);font:inherit;font-size:13px;cursor:pointer}
-button.ghost:hover{border-color:#3d3f44;color:var(--ink)}
-button.ghost:disabled{opacity:.45;cursor:default}
+button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
 
-/* ── hero ───────────────────────────────────────────────────────────── */
-.hero{
-  display:flex;flex-wrap:wrap;align-items:flex-start;gap:28px;
-  margin:28px 0 10px;padding:26px 28px;
-  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+/* ── banner ─────────────────────────────────────────────────────────── */
+.banner{
+  border:1px solid var(--rule);border-left:3px solid var(--accent);
+  padding:17px 20px;display:flex;align-items:center;gap:22px;
+  flex-wrap:wrap;margin-top:22px;
 }
-.hero .figure{font-size:64px;line-height:1;font-weight:600;letter-spacing:-.03em}
-.hero .figure.clear{color:var(--ok)}
-.hero .figure.trouble{color:var(--bad)}
-.hero .lede{padding-top:6px}
-.hero .lede h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em}
-.hero .lede p{margin:3px 0 0;color:var(--muted);font-size:13.5px}
-.hero .counts{margin-left:auto;display:flex;gap:26px;padding-top:6px}
-.count b{display:block;font-size:22px;font-weight:600;line-height:1.2}
-.count span{color:var(--muted);font-size:11.5px;text-transform:uppercase;
-  letter-spacing:.07em}
+.banner.clear{border-left-color:var(--ok)}
+.banner .big{font:500 22px/1.15 var(--sans);letter-spacing:-.02em}
+.set{display:flex;gap:22px;margin-left:auto;flex-wrap:wrap}
+.set div{text-align:right}
+.set b{display:block;font:500 17px/1.2 var(--mono)}
+.set span{font:9.5px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;
+  color:var(--dim)}
 
 /* ── alerts ─────────────────────────────────────────────────────────── */
-.alerts{display:flex;flex-direction:column;gap:6px;margin:14px 0 0}
-.alert{
-  display:flex;align-items:baseline;gap:11px;padding:10px 14px;
-  background:var(--surface);border:1px solid var(--line);
-  border-left:3px solid var(--line);border-radius:9px;font-size:13.5px}
-.alert.bad{border-left-color:var(--bad)}
-.alert.warn{border-left-color:var(--warn)}
-.alert .state{min-width:58px}
-.alert .who{color:var(--ink-2);font-weight:500;min-width:118px}
-.alert .what{font-weight:500}
-.alert .detail{color:var(--muted);flex:1;min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.alerts{display:flex;flex-direction:column;gap:1px;margin-top:11px;
+  background:var(--rule);border:1px solid var(--rule)}
+.alert{display:flex;align-items:baseline;gap:13px;padding:10px 15px;
+  background:var(--panel);font-size:13.5px;flex-wrap:wrap}
+.alert .who{color:var(--dim);font:11.5px/1.5 var(--mono);min-width:112px}
+.alert .detail{color:var(--dim);font-size:12.5px}
 
-/* ── sections ───────────────────────────────────────────────────────── */
-h2{margin:34px 0 12px;font-size:11.5px;font-weight:600;color:var(--muted);
-  text-transform:uppercase;letter-spacing:.1em}
-.grid{display:grid;gap:12px;
-  grid-template-columns:repeat(auto-fit,minmax(288px,1fr))}
-.card{background:var(--surface);border:1px solid var(--line);
-  border-radius:var(--r);padding:18px 20px;
-  /* The grid stretches every card to the tallest in its row; without this the
-     chip row lands mid-card on the short ones and the bottoms do not line up. */
+/* ── sections and panels ────────────────────────────────────────────── */
+h2{margin:30px 0 11px;font:500 10px/1 var(--mono);letter-spacing:.24em;
+  text-transform:uppercase;color:var(--accent)}
+.g{display:grid;gap:11px}
+.g3{grid-template-columns:repeat(auto-fit,minmax(285px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}
+.p{border:1px solid var(--rule);background:var(--panel);padding:14px 16px;
   display:flex;flex-direction:column}
-.card.down{border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.p.down{border-color:color-mix(in srgb,var(--bad) 50%,var(--rule))}
+.cap{font:500 9.5px/1.3 var(--mono);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--dim);margin-bottom:11px;display:flex;justify-content:space-between;
+  align-items:center;gap:10px}
+.n{font:400 27px/1 var(--mono);letter-spacing:-.03em}
+.n small{font-size:12px;color:var(--dim);letter-spacing:0;vertical-align:.72em;
+  margin-left:3px}
+.sub{font:10.5px/1.5 var(--mono);color:var(--dim);margin-top:7px}
 
-/* state = glyph + word + colour. Never colour alone: the good/bad pair is
-   indistinguishable to a red-green viewer, and this page is mostly that pair. */
-.state{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;
-  font-weight:600;letter-spacing:.01em}
-.state .g{display:inline-grid;place-items:center;width:15px;height:15px;
-  border-radius:50%;font-size:10px;font-weight:700;line-height:1;color:var(--plane)}
-.state.ok   .g{background:var(--ok)}
-.state.warn .g{background:var(--warn)}
-.state.bad  .g{background:var(--bad)}
-.state.idle .g{background:var(--muted)}
-.state.ok{color:var(--ok)} .state.warn{color:var(--warn)}
-.state.bad{color:var(--bad)} .state.idle{color:var(--muted)}
-
-.card .top{display:flex;align-items:center;gap:10px;margin-bottom:2px}
-.card .name{font-size:16px;font-weight:600;letter-spacing:-.01em}
-.card .sub{color:var(--muted);font-size:12.5px;margin-bottom:16px;
-  font-variant-numeric:tabular-nums}
+/* State is a filled square plus a word — never colour alone, because the
+   good/bad pair is indistinguishable to a red-green viewer. */
+.st{display:inline-flex;align-items:center;gap:6px;font:500 11px/1 var(--mono);
+  letter-spacing:.06em;white-space:nowrap}
+.st i{width:6px;height:6px;flex:none}
+.st.ok{color:var(--ok)}   .st.ok i{background:var(--ok)}
+.st.warn{color:var(--warn)} .st.warn i{background:var(--warn)}
+.st.bad{color:var(--bad)} .st.bad i{background:var(--bad)}
+.st.idle{color:var(--dim)} .st.idle i{background:var(--dim)}
 
 /* ── meters ─────────────────────────────────────────────────────────── */
-.meter{margin:0 0 11px}
-.meter .cap{display:flex;justify-content:space-between;align-items:baseline;
-  gap:10px;margin-bottom:5px;font-size:12.5px}
-.meter .cap .k{color:var(--ink-2)}
-.meter .cap .v{color:var(--muted);font-variant-numeric:tabular-nums}
-.track{height:6px;border-radius:3px;overflow:hidden;background:var(--m-ok-track)}
-.track>i{display:block;height:100%;border-radius:3px;background:var(--m-ok);
-  transition:width .5s cubic-bezier(.4,0,.2,1)}
-.meter.warn .track{background:var(--m-warn-track)}
-.meter.warn .track>i{background:var(--m-warn)}
-.meter.bad .track{background:var(--m-bad-track)}
-.meter.bad .track>i{background:var(--m-bad)}
+.tr{height:2px;background:var(--rule);margin-top:9px}
+.tr i{display:block;height:100%;background:var(--meter);
+  transition:width .45s cubic-bezier(.4,0,.2,1)}
+.tr.warn i{background:var(--warn)}
+.tr.bad i{background:var(--bad)}
+.m{margin-top:10px}
+.m .lab{display:flex;justify-content:space-between;gap:10px;
+  font:10.5px/1.4 var(--mono);color:var(--dim)}
+.m .lab b{font-weight:400;color:var(--ink)}
+.m .tr{margin-top:4px}
 
-.facts{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;
-  padding-top:13px;border-top:1px solid var(--line)}
-.facts:only-child,.card>.facts{margin-top:auto}
-.meter:last-of-type{margin-bottom:14px}
-.chip{padding:3px 9px;background:var(--surface-2);border-radius:999px;
-  color:var(--ink-2);font-size:11.5px;font-variant-numeric:tabular-nums}
-.chip.warn{background:color-mix(in srgb,var(--warn) 16%,var(--surface-2));
-  color:var(--warn)}
-/* A sleeping phone is a standing fact, not a fault — recessive, never amber. */
-.chip.off{color:var(--muted)}
-/* Marks a row that copies an existing backup onward rather than making one. */
-.tag{margin-left:6px;padding:1px 6px;border-radius:999px;background:var(--surface-2);
-  color:var(--muted);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase}
+/* ── key/value blocks ───────────────────────────────────────────────── */
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;margin-top:11px;
+  font:10.5px/1.45 var(--mono)}
+.kv dt{color:var(--dim)}
+.kv dd{text-align:right;overflow-wrap:anywhere}
+.kv dd.ok{color:var(--ok)} .kv dd.warn{color:var(--warn)} .kv dd.bad{color:var(--bad)}
+.kv dd.dim{color:var(--dim)}
 
 /* ── tables ─────────────────────────────────────────────────────────── */
-.scroll{overflow-x:auto;background:var(--surface);
-  border:1px solid var(--line);border-radius:var(--r)}
-table{width:100%;border-collapse:collapse;font-size:13.5px;
-  font-variant-numeric:tabular-nums}
-th{padding:11px 16px;text-align:left;font-size:11px;font-weight:600;
-  color:var(--muted);text-transform:uppercase;letter-spacing:.07em;
-  border-bottom:1px solid var(--line);white-space:nowrap}
-td{padding:12px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
-tr:last-child td{border-bottom:0}
-td.host{color:var(--ink-2);font-weight:500}
-td.dim{color:var(--muted)}
-.tabular{font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font:11.5px/1 var(--mono)}
+th{text-align:left;font:500 9px/1 var(--mono);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--dim);padding:0 14px 10px 0;white-space:nowrap}
+td{padding:8px 14px 8px 0;border-top:1px solid var(--rule);white-space:nowrap}
+tr:first-child td{border-top:0}
+td.d{color:var(--dim)}
+td.r,th.r{text-align:right;padding-right:0}
+td.w{white-space:normal}
 
-/* ── sync ───────────────────────────────────────────────────────────── */
-.peer{display:flex;align-items:center;gap:11px;margin:9px 0 0;font-size:13px}
-.peer .pn{min-width:78px;color:var(--ink-2)}
-.peer .track{flex:1}
-.peer .pv{min-width:46px;text-align:right;color:var(--muted);
-  font-variant-numeric:tabular-nums}
-.note{margin:12px 0 0;color:var(--muted);font-size:12.5px}
+/* ── sparkline ──────────────────────────────────────────────────────── */
+.sp{display:flex;align-items:flex-end;gap:2px;height:34px;margin-top:11px}
+.sp i{flex:1;background:var(--meter);opacity:.5;min-height:2px}
+.sp i:nth-child(5n){opacity:.85}
+.sp i.none{background:var(--rule);opacity:1}
+.ends{display:flex;justify-content:space-between;color:var(--dim);
+  font:9.5px/1.6 var(--mono)}
 
-/* ── key/value rows ─────────────────────────────────────────────────── */
-.kv{display:grid;grid-template-columns:auto 1fr;gap:7px 16px;font-size:13px;margin:0}
-.kv dt{color:var(--muted)}
-.kv dd{margin:0;color:var(--ink-2);text-align:right;overflow-wrap:anywhere;
-  font-variant-numeric:tabular-nums}
-.kv dd.bad{color:var(--bad)} .kv dd.warn{color:var(--warn)}
-
-/* ── daily bars ─────────────────────────────────────────────────────── */
-/* Thirty days of token spend. No per-bar label on purpose: the shape is what
-   the eye is here for, and the exact figure for one Tuesday is a tooltip's
-   job. A day with no sessions still gets a bar, in the line colour — a gap
-   would read as missing data rather than as a day off. */
-.spark{display:flex;align-items:flex-end;gap:2px;height:54px;margin:15px 0 2px}
-.spark i{flex:1;min-width:2px;display:block;border-radius:2px 2px 0 0;
-  background:var(--m-ok);opacity:.85}
-.spark i.none{background:var(--line);opacity:1;height:2px}
-.spark i:hover{opacity:1}
-.spark-ends{display:flex;justify-content:space-between;color:var(--muted);
-  font-size:11px;font-variant-numeric:tabular-nums}
+/* ── peers ──────────────────────────────────────────────────────────── */
+.peer{display:flex;align-items:center;gap:10px;margin-top:8px;
+  font:10.5px/1 var(--mono)}
+.peer .pn{min-width:76px;color:var(--dim)}
+.peer .tr{flex:1;margin:0}
+.peer .pv{min-width:34px;text-align:right}
 
 /* ── console links ──────────────────────────────────────────────────── */
-.links{display:grid;gap:10px;
-  grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
-.links a{display:flex;flex-direction:column;gap:3px;padding:14px 16px;
-  background:var(--surface);border:1px solid var(--line);
-  border-radius:var(--r);color:var(--ink);text-decoration:none}
-.links a:hover{border-color:color-mix(in srgb,var(--ink) 32%,var(--line))}
-.links .lt{font-size:13.5px;font-weight:600}
-.links .ld{font-size:12px;color:var(--muted)}
+.links{display:grid;gap:11px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.links a{display:flex;flex-direction:column;gap:3px;padding:13px 15px;
+  border:1px solid var(--rule);background:var(--panel);color:var(--ink);
+  text-decoration:none}
+.links a:hover{border-color:var(--accent)}
+.links a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.links .lt{font:500 12.5px/1.3 var(--sans)}
+.links .ld{font:10px/1.4 var(--mono);color:var(--dim);letter-spacing:.06em;
+  text-transform:uppercase}
 
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
-/* Porkbun's API terms require attribution wherever their data is shown. */
-.credit{margin:13px 0 0;padding-top:11px;border-top:1px solid var(--line);
-  color:var(--muted);font-size:11.5px}
-.credit a{color:var(--muted)}
-.stale{color:var(--warn)}
+.empty{padding:18px;color:var(--dim);font:11.5px/1 var(--mono);text-align:center;
+  border:1px dashed var(--rule)}
+.credit{margin-top:auto;padding-top:11px;color:var(--dim);font:9.5px/1.5 var(--mono);
+  letter-spacing:.06em}
+.credit a{color:var(--dim)}
+footer{margin-top:34px;color:var(--dim);font:10px/1.6 var(--mono);
+  letter-spacing:.1em;text-transform:uppercase;text-align:center}
 
-.empty{padding:22px;color:var(--muted);font-size:13.5px;text-align:center;
-  background:var(--surface);border:1px dashed var(--line);border-radius:var(--r)}
-footer{margin-top:40px;color:var(--muted);font-size:12px;text-align:center}
-
-@media (max-width:640px){
-  .hero{padding:20px;gap:18px}
-  .hero .figure{font-size:52px}
-  .hero .counts{margin-left:0;width:100%;gap:22px;
-    padding-top:14px;border-top:1px solid var(--line)}
-  /* Squeezed beside the label, the detail wrapped one word per line and made
-     a four-word alert six rows tall. It gets the whole second line instead. */
-  .alert{flex-wrap:wrap;gap:3px 10px}
+@media (max-width:620px){
+  .banner{padding:15px}
+  .banner .big{font-size:19px}
+  .set{margin-left:0;width:100%;gap:18px;padding-top:12px;
+    border-top:1px solid var(--rule)}
   .alert .who{min-width:0}
-  .alert .detail{flex:1 0 100%;white-space:normal;padding-left:68px}
+}
+@media (prefers-reduced-motion:reduce){
+  .tr i{transition:none}
 }
 </style>
 </head>
@@ -244,29 +203,30 @@ footer{margin-top:40px;color:var(--muted);font-size:12px;text-align:center}
     <span class="mark">Dashboard</span>
     <span class="pulse" id="pulse"></span>
     <span class="spacer"></span>
-    <span class="stamp" id="stamp">loading…</span>
-    <button class="ghost" id="refresh">Refresh</button>
+    <span class="stamp" id="stamp">loading</span>
+    <button id="refresh">Refresh</button>
   </div>
 </header>
 
 <main class="wrap" id="main">
-  <div class="empty" style="margin-top:28px">Asking the hosts…</div>
+  <div class="empty" style="margin-top:22px">Asking the hosts</div>
 </main>
 
-<footer>Hosts polled from each machine's fleet-status agent; accounts read
-  read-only from the registrar and Cloudflare · no history kept</footer>
-
+<footer>fleet-status agents · read-only vendor APIs · no history kept</footer>
 <script>
 "use strict";
 
 const POLL_MS = 15000;
-/* The accounts half is on its own, much slower clock. Nothing there changes
-   between two glances at a page, and the server caches it for hours anyway —
-   asking every 15s would only mean three vendors hear from every open tab. */
+/* The accounts half runs on its own, much slower clock: the server caches it
+   for hours, so asking every 15s would only mean three vendors hear from every
+   tab left open. */
 const ACCOUNTS_MS = 300000;
-let data = null, accounts = null, at = 0, busy = false;
+let data = null, accounts = null, busy = false;
 
 /* ── formatting ───────────────────────────────────────────────────────── */
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g,
+  c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
 
 const bytes = n => {
   if (!n && n !== 0) return "—";
@@ -276,243 +236,8 @@ const bytes = n => {
   return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + " " + u[i];
 };
 
-const dur = s => {
-  if (s == null) return "—";
-  if (s < 60) return s + "s";
-  if (s < 3600) return Math.floor(s / 60) + "m";
-  if (s < 86400) return Math.floor(s / 3600) + "h " + Math.floor(s % 3600 / 60) + "m";
-  return Math.floor(s / 86400) + "d " + Math.floor(s % 86400 / 3600) + "h";
-};
-
-/* Relative time, and always signed by direction — "in 4h" and "4h ago" are
-   opposite facts and a bare "4h" next to a backup's next run has been read as
-   both. */
-const ago = ts => {
-  if (!ts) return "never";
-  const d = Math.floor(Date.now() / 1000) - ts;
-  if (Math.abs(d) < 45) return d >= 0 ? "just now" : "any moment";
-  return d >= 0 ? dur(d) + " ago" : "in " + dur(-d);
-};
-
-const esc = s => String(s ?? "").replace(/[&<>"]/g,
-  c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
-
-/* One place decides what a percentage means, so a disk at 88% is the same
-   colour as a memory bar at 88% and neither drifts when one is edited. */
-const sev = pct => pct >= 92 ? "bad" : pct >= 85 ? "warn" : "ok";
-
-const GLYPH = { ok:"✓", warn:"!", bad:"✕", idle:"–" };
-const state = (kind, word) =>
-  `<span class="state ${kind}"><span class="g">${GLYPH[kind]}</span>${esc(word)}</span>`;
-
-const meter = (label, value, pct, kind) => `
-  <div class="meter ${kind || sev(pct)}">
-    <div class="cap"><span class="k">${esc(label)}</span><span class="v">${esc(value)}</span></div>
-    <div class="track" role="meter" aria-valuenow="${Math.round(pct)}"
-         aria-valuemin="0" aria-valuemax="100" aria-label="${esc(label)}"
-         title="${esc(label)}: ${Math.round(pct)}%">
-      <i style="width:${Math.max(0, Math.min(100, pct)).toFixed(1)}%"></i>
-    </div>
-  </div>`;
-
-/* ── sections ─────────────────────────────────────────────────────────── */
-
-function hero(d) {
-  const n = d.alerts.length;
-  const bad = d.alerts.filter(a => a.level === "bad").length;
-  const hosts = d.hosts.filter(h => h.reachable).length;
-  const apps = d.hosts.reduce((s, h) => s + ((h.apps || []).length || 0), 0);
-  const backups = d.hosts.reduce((s, h) => s + ((h.backups || []).length || 0), 0);
-
-  return `
-  <section class="hero">
-    <div class="figure ${n ? "trouble" : "clear"}">${n}</div>
-    <div class="lede">
-      <h1>${n === 0 ? "Nothing wrong anywhere"
-                    : `${bad} broken, ${n - bad} worth a look`}</h1>
-      <p>${n === 0 ? "Every host answered, every check passed."
-                   : "Listed below, worst first."}</p>
-    </div>
-    <div class="counts">
-      <div class="count"><b>${hosts}/${d.hosts.length}</b><span>hosts up</span></div>
-      <div class="count"><b>${apps}</b><span>apps</span></div>
-      <div class="count"><b>${backups}</b><span>backup jobs</span></div>
-    </div>
-  </section>
-  ${n ? `<div class="alerts">${d.alerts.map(a => `
-    <div class="alert ${esc(a.level)}">
-      ${state(a.level, a.level === "bad" ? "fail" : "warn")}
-      <span class="who">${esc(a.host)}</span>
-      <span class="what">${esc(a.what)}</span>
-      <span class="detail">${esc(a.detail)}</span>
-    </div>`).join("")}</div>` : ""}`;
-}
-
-function hostCard(h) {
-  if (!h.reachable) return `
-    <div class="card down">
-      <div class="top"><span class="name">${esc(h.host)}</span>
-        ${state("bad", "unreachable")}</div>
-      <div class="sub">${esc(h.error || "no answer")}</div>
-      <p class="note">Nothing else is known about this machine — every number
-        on this page comes from an agent that is not answering.</p>
-    </div>`;
-
-  const b = h.boot || {}, m = h.memory || {}, g = h.generation || {};
-  const memPct = m.total ? 100 * m.used / m.total : 0;
-  const load1 = (b.load || [0])[0];
-  // Load against core count, not raw: 3.5 is idle on 20 cores and on fire on 2.
-  const loadPct = b.cpus ? 100 * load1 / b.cpus : 0;
-
-  const disks = (h.disks || []).filter(d => d && d.total).map(d =>
-    meter(d.mount, `${bytes(d.used)} / ${bytes(d.total)}`,
-          100 * d.used / d.total)).join("");
-
-  const chips = [];
-  if (g.number) chips.push(`<span class="chip">gen ${g.number} · ${ago(g.built)}</span>`);
-  if (g.reboot_pending) chips.push(`<span class="chip warn">reboot pending</span>`);
-  if (g.untracked) chips.push(`<span class="chip warn">test activation</span>`);
-  if (h.rtt_ms != null) chips.push(`<span class="chip">${h.rtt_ms} ms</span>`);
-
-  const failed = (h.health || {}).failed || [];
-
-  return `
-    <div class="card">
-      <div class="top"><span class="name">${esc(h.host)}</span>
-        ${failed.length ? state("bad", `${failed.length} failed`)
-                        : state("ok", "healthy")}</div>
-      <div class="sub">up ${dur(b.uptime)} · ${esc(b.kernel || "?")}</div>
-      ${meter("Memory", `${bytes(m.used)} / ${bytes(m.total)}`, memPct)}
-      ${meter("Load", `${load1?.toFixed(2) ?? "—"} of ${b.cpus ?? "?"}`, loadPct)}
-      ${disks}
-      ${chips.length ? `<div class="facts">${chips.join("")}</div>` : ""}
-    </div>`;
-}
-
-function backupRows(d) {
-  const rows = [];
-  for (const h of d.hosts) {
-    if (!h.reachable) continue;
-    const jobs = h.backups || [];
-    if (!jobs.length) {
-      // A host with no jobs is not a host with healthy jobs. Saying so in its
-      // own colour is the single most valuable cell in this table.
-      rows.push(`<tr>
-        <td class="host">${esc(h.host)}</td>
-        <td class="dim">—</td>
-        <td>${state("idle", "not configured")}</td>
-        <td class="dim" colspan="3">nothing on this machine is backed up</td>
-      </tr>`);
-      continue;
-    }
-    for (const b of jobs) {
-      const ok = b.result === "success";
-      const st = b.running ? state("warn", "running")
-               : ok ? state("ok", "success")
-                    : state("bad", esc(b.result || "unknown"));
-      rows.push(`<tr>
-        <td class="host">${esc(h.host)}</td>
-        <td>${esc(b.job)}${b.kind === "copy"
-          ? ` <span class="tag">copy</span>` : ""}</td>
-        <td>${st}</td>
-        <td class="${ok ? "dim" : ""}">${esc(ago(b.last))}</td>
-        <td class="dim">${esc(dur(b.duration))}</td>
-        <td class="dim">${esc(ago(b.next))}</td>
-      </tr>`);
-    }
-  }
-  if (!rows.length) return `<div class="empty">No host reported a backup job.</div>`;
-  return `<div class="scroll"><table>
-    <thead><tr><th>Host</th><th>Job</th><th>Last run</th>
-      <th>When</th><th>Took</th><th>Next</th></tr></thead>
-    <tbody>${rows.join("")}</tbody></table></div>`;
-}
-
-function syncCards(d) {
-  const cards = [];
-  for (const h of d.hosts) {
-    const s = h.syncthing;
-    if (!s || !s.folders) continue;
-
-    const devices = s.devices.map(dv =>
-      `<span class="chip${dv.connected ? "" : " off"}">${esc(dv.name)}${
-        dv.connected ? "" : " · offline"}</span>`).join("");
-
-    for (const f of s.folders) {
-      const behind = f.need_bytes > 0;
-      cards.push(`
-      <div class="card">
-        <div class="top"><span class="name">${esc(f.label)}</span>
-          ${behind ? state("warn", `${f.need_items} behind`) : state("ok", "in sync")}</div>
-        <div class="sub">${esc(h.host)} · ${bytes(f.global_bytes)}</div>
-        ${f.peers.map(p => `
-          <div class="peer">
-            <span class="pn">${esc(p.device)}</span>
-            <div class="track ${p.completion >= 100 ? "" : "warn"}"
-                 title="${esc(p.device)}: ${p.completion}%">
-              <i style="width:${Math.max(0, Math.min(100, p.completion))}%"></i></div>
-            <span class="pv">${p.completion}%</span>
-          </div>`).join("")}
-        ${f.peers.some(p => p.completion === 0) ? `<p class="note">A peer at 0%
-          has not accepted this folder yet — that is a tap on the phone, not a
-          stalled sync.</p>` : ""}
-        <div class="facts">${devices}</div>
-      </div>`);
-    }
-  }
-  return cards.length ? `<div class="grid">${cards.join("")}</div>` : "";
-}
-
-/* A unit name a person would recognise. Only cloudflared needs the help; the
-   full name stays on the row as a tooltip. */
-function unitName(unit) {
-  const u = unit.replace(/\.service$/, "");
-  const cf = u.match(/^cloudflared-tunnel-([0-9a-f]{8})/);
-  return cf ? `cloudflared · ${cf[1]}` : u;
-}
-
-function serviceRows(d) {
-  const rows = [];
-  for (const h of d.hosts) {
-    if (!h.reachable) continue;
-    for (const a of h.apps || []) {
-      rows.push(`<tr>
-        <td class="host">${esc(h.host)}</td>
-        <td>${esc(a.name)}</td>
-        <td class="dim">app · :${a.port}</td>
-        <td>${a.up ? state("ok", `HTTP ${a.code}`) : state("bad", "no answer")}</td>
-        <td class="dim">${a.up ? a.ms + " ms" : esc(a.error || "")}</td>
-      </tr>`);
-    }
-    for (const s of h.services || []) {
-      const on = s.active === "active";
-      const name = unitName(s.unit);
-      // cloudflared's units are named for their tunnel UUID and carry no
-      // description, so the row was a 36-character name with the same 36
-      // characters repeated beside it. Shorten the name, drop the echo.
-      const detail = s.description === s.unit ? "" : s.description;
-      rows.push(`<tr>
-        <td class="host">${esc(h.host)}</td>
-        <td title="${esc(s.unit)}">${esc(name)}</td>
-        <td class="dim">unit</td>
-        <td>${on ? state("ok", esc(s.sub)) : state("bad", esc(s.active))}</td>
-        <td class="dim">${esc(detail)}</td>
-      </tr>`);
-    }
-  }
-  if (!rows.length) return `<div class="empty">Nothing reported.</div>`;
-  return `<div class="scroll"><table>
-    <thead><tr><th>Host</th><th>Name</th><th>Kind</th>
-      <th>State</th><th>Detail</th></tr></thead>
-    <tbody>${rows.join("")}</tbody></table></div>`;
-}
-
-/* ── accounts ─────────────────────────────────────────────────────────── */
-
-const num = n => (n ?? 0).toLocaleString();
-
-/* Cache reads run into the billions. "2,790,672,868" is not a number anyone
-   reads, it is a length — and three of them in a row stop being comparable. */
+/* Cache reads run to the billions; a full-length figure there is a width, not
+   a number, and stops being comparable to the one under it. */
 const tok = n => {
   if (n == null) return "—";
   if (n < 1000) return String(n);
@@ -522,16 +247,203 @@ const tok = n => {
   return n.toFixed(n < 10 ? 1 : 0) + u[i];
 };
 
-/* Whole days until an ISO timestamp, negative once it has passed. */
+const num = n => (n ?? 0).toLocaleString();
+
+const dur = s => {
+  if (s == null) return "—";
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h " + Math.floor(s % 3600 / 60) + "m";
+  return Math.floor(s / 86400) + "d " + Math.floor(s % 86400 / 3600) + "h";
+};
+
+const ago = ts => {
+  if (!ts) return "—";
+  const d = Math.floor(Date.now() / 1000) - ts;
+  return d < 0 ? "in " + dur(-d) : dur(d) + " ago";
+};
+
+/* Whole days until an ISO timestamp; negative once it has passed. */
 const until = iso => {
   if (!iso) return null;
   const t = Date.parse(iso);
   return Number.isNaN(t) ? null : Math.floor((t - Date.now()) / 86400000);
 };
 
+/* One place decides what a percentage means, so a disk at 88% is the same
+   colour as a memory bar at 88% and neither drifts when one is edited. */
+const sev = pct => pct >= 92 ? "bad" : pct >= 85 ? "warn" : "ok";
+
+const st = (kind, word) => `<span class="st ${kind}"><i></i>${esc(word)}</span>`;
+
+const meter = (label, value, pct) => {
+  const k = sev(pct);
+  return `<div class="m">
+    <div class="lab"><span>${esc(label)}</span><b>${esc(value)}</b></div>
+    <div class="tr ${k === "ok" ? "" : k}" role="meter"
+         aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"
+         aria-label="${esc(label)}">
+      <i style="width:${Math.max(0, Math.min(100, pct)).toFixed(1)}%"></i></div>
+  </div>`;
+};
+
 const kv = rows => `<dl class="kv">${rows.filter(Boolean).map(
-  ([k, v, cls]) => `<dt>${esc(k)}</dt><dd class="${cls || ""}">${v}</dd>`
-).join("")}</dl>`;
+  ([k, v, cls]) => `<dt>${esc(k)}</dt><dd class="${cls || ""}">${v}</dd>`).join("")}</dl>`;
+
+/* An empty cap means the section heading above already named this panel;
+   drawing it twice reads as two things stacked rather than one. */
+const panel = (cap, right, body, cls) =>
+  `<div class="p ${cls || ""}">${cap || right ? `<div class="cap">
+    <span>${esc(cap)}</span>${right || ""}</div>` : ""}${body}</div>`;
+
+const spark = values => {
+  const peak = Math.max(1, ...values.map(v => v[1]));
+  return `<div class="sp">${values.map(([day, v]) =>
+    `<i class="${v ? "" : "none"}" style="height:${Math.max((v / peak) * 100, 3)}%"
+        title="${esc(day)}: ${tok(v)} tokens"></i>`).join("")}</div>`;
+};
+
+/* ── fleet ────────────────────────────────────────────────────────────── */
+
+function banner(d) {
+  const n = d.alerts.length;
+  const bad = d.alerts.filter(a => a.level === "bad").length;
+  const up = d.hosts.filter(h => h.reachable).length;
+  const apps = d.hosts.reduce((s, h) => s + ((h.apps || []).length || 0), 0);
+  const jobs = d.hosts.reduce((s, h) => s + ((h.backups || []).length || 0), 0);
+  const keys = new Set();
+  d.hosts.forEach(h => (h.secrets || []).forEach(s => keys.add(s.name)));
+
+  return `
+  <div class="banner ${n ? "" : "clear"}">
+    <span class="big">${n === 0 ? "Nothing wrong anywhere"
+      : `${bad} broken, ${n - bad} worth a look`}</span>
+    <div class="set">
+      <div><b>${up}/${d.hosts.length}</b><span>hosts</span></div>
+      <div><b>${apps}</b><span>apps</span></div>
+      <div><b>${jobs}</b><span>backups</span></div>
+      <div><b>${keys.size}</b><span>secrets</span></div>
+      <div><b>${n}</b><span>alerts</span></div>
+    </div>
+  </div>
+  ${n ? `<div class="alerts">${d.alerts.map(a => `
+    <div class="alert">${st(a.level, a.level === "bad" ? "fail" : "warn")}
+      <span class="who">${esc(a.host)}</span>
+      <span>${esc(a.what)}</span>
+      <span class="detail">${esc(a.detail)}</span></div>`).join("")}</div>` : ""}`;
+}
+
+function hostPanel(h) {
+  if (!h.reachable) {
+    return panel(h.host, st("bad", "unreachable"),
+      `<div class="n">—</div><div class="sub">${esc(h.error || "no answer")}</div>`,
+      "down");
+  }
+  const b = h.boot || {}, m = h.memory || {}, g = h.generation || {};
+  const memPct = m.total ? 100 * m.used / m.total : 0;
+  const load1 = (b.load || [0])[0];
+  // Load against core count, not raw: 3.5 is idle on 20 cores and on fire on 2.
+  const loadPct = b.cpus ? 100 * load1 / b.cpus : 0;
+  const disks = (h.disks || []).filter(d => d && d.total);
+  const root = disks.find(d => d.mount === "/") || disks[0];
+  const rootPct = root ? 100 * root.used / root.total : 0;
+  const failed = (h.health || {}).failed || [];
+
+  return panel(h.host,
+    failed.length ? st("bad", `${failed.length} failed`) : st("ok", "healthy"),
+    `<div class="n">${Math.round(loadPct)}<small>% load</small></div>
+     <div class="tr ${sev(loadPct) === "ok" ? "" : sev(loadPct)}">
+       <i style="width:${Math.min(100, loadPct).toFixed(1)}%"></i></div>
+     <div class="sub">up ${dur(b.uptime)} · ${esc(b.kernel || "?")} · ${
+       load1?.toFixed(2) ?? "—"} of ${b.cpus ?? "?"}</div>
+     ${meter("memory", `${bytes(m.used)} / ${bytes(m.total)}`, memPct)}
+     ${disks.map(d => meter(d.mount, `${bytes(d.used)} / ${bytes(d.total)}`,
+                            100 * d.used / d.total)).join("")}
+     ${kv([
+       g.number ? ["generation", `${g.number} · ${ago(g.built)}`] : null,
+       g.reboot_pending ? ["reboot", "<b>pending</b>", "warn"] : null,
+       g.untracked ? ["activation", "test", "warn"] : null,
+       ["round trip", (h.rtt_ms ?? "—") + " ms", "dim"],
+       failed.length ? ["failed units", failed.map(esc).join("<br>"), "bad"] : null,
+     ])}`);
+}
+
+function backupPanel(d) {
+  const rows = [];
+  for (const h of d.hosts) {
+    if (!h.reachable) continue;
+    const jobs = h.backups || [];
+    if (!jobs.length) {
+      rows.push(`<tr><td class="d">—</td><td class="d">${esc(h.host)}</td>
+        <td>${st("idle", "not configured")}</td>
+        <td class="d w" colspan="3">nothing here is backed up</td></tr>`);
+      continue;
+    }
+    for (const b of jobs) {
+      const ok = b.result === "success";
+      rows.push(`<tr>
+        <td>${esc(b.job)}${b.kind === "copy" ? ' <span class="d">copy</span>' : ""}</td>
+        <td class="d">${esc(h.host)}</td>
+        <td>${b.running ? st("warn", "running") : ok ? st("ok", "success")
+                       : st("bad", b.result || "unknown")}</td>
+        <td class="d">${esc(ago(b.last))}</td>
+        <td class="d r">${esc(dur(b.duration))}</td>
+        <td class="d r">${esc(ago(b.next))}</td></tr>`);
+    }
+  }
+  if (!rows.length) return `<div class="empty">no backup jobs reported</div>`;
+  return panel("", "", `<div class="scroll"><table>
+    <tr><th>job</th><th>host</th><th>last run</th><th>when</th>
+      <th class="r">took</th><th class="r">next</th></tr>
+    ${rows.join("")}</table></div>`);
+}
+
+function servicePanel(d) {
+  const rows = [];
+  for (const h of d.hosts) {
+    if (!h.reachable) continue;
+    for (const a of h.apps || []) {
+      rows.push(`<tr><td>${esc(a.name)}</td><td class="d">${esc(h.host)}</td>
+        <td class="d">app :${a.port}</td>
+        <td>${a.up ? st("ok", "http " + a.code) : st("bad", "no answer")}</td>
+        <td class="d r">${a.up ? a.ms + " ms" : esc(a.error || "")}</td></tr>`);
+    }
+    for (const s of h.services || []) {
+      const u = s.unit.replace(/\.service$/, "");
+      const cf = u.match(/^cloudflared-tunnel-([0-9a-f]{8})/);
+      rows.push(`<tr><td title="${esc(s.unit)}">${esc(cf ? "cloudflared " + cf[1] : u)}</td>
+        <td class="d">${esc(h.host)}</td><td class="d">unit</td>
+        <td>${s.active === "active" ? st("ok", s.sub) : st("bad", s.active)}</td>
+        <td class="d r"></td></tr>`);
+    }
+  }
+  if (!rows.length) return `<div class="empty">nothing reported</div>`;
+  return panel("", "", `<div class="scroll"><table>
+    <tr><th>name</th><th>host</th><th>kind</th><th>state</th><th class="r">rtt</th></tr>
+    ${rows.join("")}</table></div>`);
+}
+
+function syncPanels(d) {
+  const out = [];
+  for (const h of d.hosts) {
+    const s = h.syncthing;
+    if (!s || !s.folders) continue;
+    const off = (s.devices || []).filter(dv => !dv.connected).length;
+    for (const f of s.folders) {
+      out.push(panel(f.label,
+        f.need_bytes > 0 ? st("warn", `${f.need_items} behind`) : st("ok", "in sync"),
+        `<div class="n">${bytes(f.global_bytes)}</div>
+         <div class="sub">${esc(h.host)} · ${(s.devices || []).length} devices${
+           off ? ` · ${off} offline` : ""}</div>
+         ${f.peers.map(p => `<div class="peer">
+           <span class="pn">${esc(p.device)}</span>
+           <div class="tr ${p.completion >= 100 ? "" : "warn"}">
+             <i style="width:${Math.max(0, Math.min(100, p.completion))}%"></i></div>
+           <span class="pv">${p.completion}%</span></div>`).join("")}`));
+    }
+  }
+  return out.join("");
+}
 
 /* ── claude ───────────────────────────────────────────────────────────── */
 
@@ -540,329 +452,230 @@ function claudeSection(d) {
   if (!host) return "";
   const c = host.claude;
   const days = Object.keys(c.days || {}).sort().slice(-30);
-  const perDay = days.map(day => Object.values(c.days[day])
-    .reduce((s, m) => s + m.input + m.output + m.cache_read + m.cache_write, 0));
-  const peak = Math.max(1, ...perDay);
+  const perDay = days.map(day => [day, Object.values(c.days[day]).reduce(
+    (s, m) => s + m.input + m.output + m.cache_read + m.cache_write, 0)]);
+  const models = Object.entries(c.models || {}).sort((a, b) => b[1].output - a[1].output);
+  const t = models.reduce((s, [, m]) => ({
+    output: s.output + m.output, thinking: s.thinking + m.thinking,
+    requests: s.requests + m.requests, read: s.read + m.cache_read,
+    write: s.write + m.cache_write, search: s.search + m.web_search,
+  }), { output: 0, thinking: 0, requests: 0, read: 0, write: 0, search: 0 });
 
-  const models = Object.entries(c.models || {})
-    .sort((a, b) => b[1].output - a[1].output);
-  const totals = models.reduce((s, [, m]) => ({
-    output: s.output + m.output,
-    thinking: s.thinking + m.thinking,
-    requests: s.requests + m.requests,
-    read: s.read + m.cache_read,
-    write: s.write + m.cache_write,
-  }), { output: 0, thinking: 0, requests: 0, read: 0, write: 0 });
-
-  return `
-  <h2>Claude</h2>
-  <div class="grid">
-    <div class="card">
-      <div class="top"><span class="name">Spend</span></div>
-      <div class="sub">${esc(host.host)} · ${esc(c.first || "?")} to ${esc(c.last || "?")}</div>
-      <div class="spark">${days.map((day, i) => {
-        const h = Math.round((perDay[i] / peak) * 100);
-        return `<i class="${perDay[i] ? "" : "none"}" style="height:${Math.max(h, 2)}%"
-                   title="${esc(day)}: ${tok(perDay[i])} tokens"></i>`;
-      }).join("")}</div>
-      <div class="spark-ends"><span>${esc(days[0] || "")}</span>
-        <span>${esc(days[days.length - 1] || "")}</span></div>
-      <div class="facts">
-        <span class="chip">${num(c.sessions)} sessions</span>
-        <span class="chip">${num(c.prompts)} prompts</span>
-        <span class="chip">${num(c.tools)} tool calls</span>
-        <span class="chip">${num(totals.requests)} requests</span>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="top"><span class="name">Tokens</span></div>
-      <div class="sub">all time, as logged</div>
-      ${kv([
-        ["Output", tok(totals.output)],
-        ["of that, thinking", tok(totals.thinking)],
-        ["Cache read", tok(totals.read)],
-        ["Cache written", tok(totals.write)],
-      ])}
-      <p class="note">An estimate. A subscription has no usage endpoint, so
-        these come from the transcripts Claude Code writes locally — the same
-        source its own stats view reads, and not a bill.</p>
-    </div>
-
-    ${models.map(([name, m]) => `
-    <div class="card">
-      <div class="top"><span class="name">${esc(name.replace(/^claude-/, ""))}</span></div>
-      <div class="sub">${num(m.requests)} requests</div>
-      ${kv([
-        ["Output", tok(m.output)],
-        ["Thinking", tok(m.thinking)],
-        ["Cache read", tok(m.cache_read)],
-        ["Cache written", tok(m.cache_write)],
-        m.web_search ? ["Web searches", num(m.web_search)] : null,
-      ])}
-    </div>`).join("")}
+  return `<h2>Claude</h2><div class="g g2">
+    ${panel(`${host.host} · 30 days`, "",
+      `<div class="n">${tok(t.output)}<small>out</small></div>
+       ${spark(perDay)}
+       <div class="ends"><span>${esc(days[0] || "")}</span>
+         <span>${esc(days[days.length - 1] || "")}</span></div>
+       ${kv([
+         ["sessions", num(c.sessions)],
+         ["prompts", num(c.prompts)],
+         ["tool calls", num(c.tools)],
+         ["requests", num(t.requests)],
+         ["thinking", tok(t.thinking)],
+         ["cache read", tok(t.read)],
+         ["cache written", tok(t.write)],
+         t.search ? ["web searches", num(t.search)] : null,
+         ["first seen", esc(c.first || "—"), "dim"],
+       ])}`)}
+    ${models.map(([name, m]) => panel(name.replace(/^claude-/, ""),
+      `<span class="st idle"><i></i>${num(m.requests)} req</span>`,
+      `<div class="n">${tok(m.output)}<small>out</small></div>
+       ${kv([
+         ["thinking", tok(m.thinking)],
+         ["cache read", tok(m.cache_read)],
+         ["cache written", tok(m.cache_write)],
+         ["uncached in", tok(m.input)],
+         m.web_search ? ["web searches", num(m.web_search)] : null,
+       ])}`)).join("")}
   </div>`;
 }
 
-/* ── tailscale ────────────────────────────────────────────────────────── */
+/* ── tailnet ──────────────────────────────────────────────────────────── */
 
-function tailscaleSection(d) {
-  /* Every host reports the same mesh from its own vantage point. One view is
-     enough to draw it; the one taken from a reachable host is the one that is
-     not itself a guess. */
+function tailnetSection(d) {
+  /* Every host sees the same mesh; the view taken from a reachable one is the
+     only view that is not itself a guess. */
   const host = d.hosts.find(h => h.tailnet && h.tailnet.peers && !h.tailnet.error);
   if (!host) return "";
   const t = host.tailnet;
-  const nodes = [t.node, ...t.peers].filter(Boolean);
-
-  const rows = nodes.map(n => {
+  const rows = [t.node, ...t.peers].filter(Boolean).map(n => {
     const left = until(n.key_expiry);
-    const kind = n.online ? "ok" : "idle";
-    /* A node key is the one thing here with a deadline. Thirty days is enough
-       warning to re-authenticate at leisure; past that it is an outage with a
-       date on it. */
-    const keyCls = left == null ? "" : left < 0 ? "bad" : left < 30 ? "warn" : "";
-    return `<tr>
-      <td class="host">${esc(n.name)}${n.self ? `<span class="tag">this view</span>` : ""}</td>
-      <td>${state(kind, n.online ? "online" : "offline")}</td>
-      <td class="dim">${esc(n.os || "—")}</td>
-      <td class="mono dim">${esc((n.ips || [])[0] || "—")}</td>
-      <td class="${keyCls}">${left == null ? "—"
-        : left < 0 ? "expired" : left + "d"}</td>
-      <td class="dim">${n.exit_node ? "exit node" : n.offers_exit ? "offers exit" : "—"}</td>
-      <td class="dim">${bytes(n.rx)} / ${bytes(n.tx)}</td>
-    </tr>`;
+    /* The node key is the one value here with a deadline. Thirty days is
+       enough warning to re-authenticate at leisure; past that it is an outage
+       with a date on it. */
+    const cls = left == null ? "d" : left < 0 ? "bad" : left < 30 ? "warn" : "d";
+    return `<tr><td>${esc(n.name)}${n.self ? ' <span class="d">· this view</span>' : ""}</td>
+      <td>${n.online ? st("ok", "online") : st("idle", "offline")}</td>
+      <td class="d">${esc(n.os || "—")}</td>
+      <td class="d">${esc((n.ips || [])[0] || "—")}</td>
+      <td class="r ${cls}">${left == null ? "—" : left < 0 ? "expired" : left + "d"}</td>
+      <td class="d r">${bytes(n.rx)} / ${bytes(n.tx)}</td></tr>`;
   }).join("");
 
-  return `
-  <h2>Tailscale</h2>
-  <div class="scroll"><table>
-    <thead><tr><th>Node</th><th>State</th><th>OS</th><th>Address</th>
-      <th>Key expires</th><th>Exit</th><th>Rx / Tx</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>
-  <p class="note">${esc(t.tailnet || "tailnet")} · MagicDNS
-    <span class="mono">${esc(t.magic_dns || "—")}</span> · client
-    ${esc(t.version || "?")} · read from each host's own daemon, not the
-    Tailscale API — ACLs and DNS settings live there and are not shown.</p>`;
+  return `<h2>Tailnet</h2>${panel(t.tailnet || "tailnet",
+    `<span class="st idle"><i></i>${esc(t.magic_dns || "")} · ${esc(t.version || "")}</span>`,
+    `<div class="scroll"><table>
+      <tr><th>node</th><th>state</th><th>os</th><th>address</th>
+        <th class="r">key expires</th><th class="r">rx / tx</th></tr>
+      ${rows}</table></div>`)}`;
 }
 
-/* ── domain and mail ──────────────────────────────────────────────────── */
+/* ── accounts ─────────────────────────────────────────────────────────── */
 
-function domainCard(a) {
+function domainPanel(a) {
   const d = a.domain || {};
-  if (d.configured === false) {
-    return `<div class="card"><div class="top"><span class="name">Domain</span></div>
-      <div class="sub">no registrar credentials</div>
-      <p class="note">Add the Porkbun key pair and this fills in.</p></div>`;
-  }
-  if (d.error && !d.domain) {
-    return `<div class="card down"><div class="top"><span class="name">Domain</span>
-      ${state("bad", "unreadable")}</div>
-      <div class="sub">${esc(d.error)}</div></div>`;
-  }
+  if (d.configured === false)
+    return panel("Domain", st("idle", "no credentials"), `<div class="n">—</div>`);
+  if (d.error && !d.domain)
+    return panel("Domain", st("bad", "unreadable"),
+      `<div class="n">—</div><div class="sub">${esc(d.error)}</div>`, "down");
+
   const left = d.days_left;
   /* A registration is the one dependency with no failover: every hostname,
-     every tunnel and the mail hang off it. Sixty days is the point where
-     renewing stops being automatic-if-nothing-breaks and starts being a task. */
-  const kind = left == null ? "idle" : left < 14 ? "bad" : left < 60 ? "warn" : "ok";
-  return `
-  <div class="card">
-    <div class="top"><span class="name">${esc(d.domain || "domain")}</span>
-      ${state(kind, left == null ? "unknown" : left + " days left")}</div>
-    <div class="sub">${esc(d.registrar || "")} · ${esc(d.status || "")}</div>
-    ${meter("Registration", (d.expires || "").slice(0, 10),
-            left == null ? 0 : Math.max(0, 100 - (left / 365) * 100),
-            kind === "idle" ? "ok" : kind)}
-    ${kv([
-      ["Auto-renew", d.auto_renew ? "on" : "<b>off</b>", d.auto_renew ? "" : "bad"],
-      ["Registrar lock", d.locked ? "on" : "off", d.locked ? "" : "warn"],
-      ["WHOIS privacy", d.whois_privacy ? "on" : "off"],
-      d.renewal ? ["Renews at", "$" + esc(d.renewal)] : null,
-      ["Registered", esc((d.registered || "").slice(0, 10))],
-      ["Nameservers", (d.nameservers || []).map(esc).join("<br>") || "—"],
-    ])}
-    ${d.error ? `<p class="note stale">Last reading stale: ${esc(d.error)}</p>` : ""}
-    <p class="credit">Registration data via
-      <a href="https://porkbun.com" target="_blank" rel="noopener">Porkbun</a>.</p>
-  </div>`;
+     every tunnel and the mail hang off it. Sixty days is where renewing stops
+     being automatic-if-nothing-breaks and becomes a task. */
+  const k = left == null ? "idle" : left < 14 ? "bad" : left < 60 ? "warn" : "ok";
+  return panel(d.domain || "domain",
+    st(k, left == null ? "unknown" : left + " days"),
+    `<div class="n">${left ?? "—"}<small>days left</small></div>
+     <div class="tr ${k === "ok" || k === "idle" ? "" : k}">
+       <i style="width:${left == null ? 0 : Math.max(0, 100 - (left / 365) * 100).toFixed(1)}%"></i></div>
+     <div class="sub">${esc(d.registrar || "")} · ${esc(d.status || "")}</div>
+     ${kv([
+       ["expires", esc((d.expires || "").slice(0, 10))],
+       ["renewal", d.renewal ? "$" + esc(d.renewal) : "—"],
+       ["auto-renew", d.auto_renew ? "on" : "<b>off</b>", d.auto_renew ? "" : "bad"],
+       ["registrar lock", d.locked ? "on" : "off", d.locked ? "" : "warn"],
+       ["whois privacy", d.whois_privacy ? "on" : "off"],
+       ["registered", esc((d.registered || "").slice(0, 10)), "dim"],
+       ["nameservers", (d.nameservers || []).map(esc).join("<br>") || "—", "dim"],
+       d.error ? ["last read", esc(d.error), "warn"] : null,
+     ])}
+     <p class="credit">registration data via
+       <a href="https://porkbun.com" target="_blank" rel="noopener">Porkbun</a></p>`);
 }
 
-function mailCard(a) {
+function mailPanel(a) {
   const cf = a.cloudflare || {};
-  if (cf.configured === false) {
-    return `<div class="card"><div class="top"><span class="name">Mail</span></div>
-      <div class="sub">no Cloudflare token</div></div>`;
-  }
+  if (cf.configured === false)
+    return panel("Mail", st("idle", "no token"), `<div class="n">—</div>`);
   const m = cf.email;
-  if (!m) {
-    return `<div class="card down"><div class="top"><span class="name">Mail</span>
-      ${state("bad", "unreadable")}</div>
-      <div class="sub">${esc(cf.error || "no answer")}</div></div>`;
-  }
+  if (!m) return panel("Mail", st("bad", "unreadable"),
+    `<div class="n">—</div><div class="sub">${esc(cf.error || "no answer")}</div>`, "down");
+
   const ok = m.enabled && m.status === "ready";
-  return `
-  <div class="card">
-    <div class="top"><span class="name">Mail routing</span>
-      ${state(ok ? "ok" : "bad", ok ? "ready" : (m.status || "off"))}</div>
-    <div class="sub">${esc((cf.zone || {}).name || "")}</div>
-    ${kv([
-      ["Catch-all", m.catch_all.enabled
-        ? esc((m.catch_all.to || []).join(", ") || "on, no target")
-        : "<b>disabled</b>", m.catch_all.enabled ? "" : "bad"],
-      ["Named rules", String((m.rules || []).length)],
-    ])}
-    ${(m.rules || []).map(r => `
-      <div class="peer"><span class="pn">${esc(r.match.join(", ") || r.name)}</span>
-        <span class="pv">${esc(r.to.join(", "))}</span></div>`).join("")}
-    <p class="note">A rule that gets switched off does not bounce mail, it
-      drops it — which is why every one is listed rather than counted.</p>
-  </div>`;
+  const to = (m.catch_all.to || []).join(", ");
+  return panel("Mail routing", st(ok ? "ok" : "bad", ok ? "ready" : (m.status || "off")),
+    `<div class="n">${(n => `${n}<small>rule${n === 1 ? "" : "s"}</small>`)(
+        (m.rules || []).length + (m.catch_all.enabled ? 1 : 0))}</div>
+     <div class="sub">${esc((cf.zone || {}).name || "")}</div>
+     ${kv([
+       ["catch-all", m.catch_all.enabled ? esc(to || "on, no target") : "<b>disabled</b>",
+         m.catch_all.enabled ? "" : "bad"],
+       ...(m.rules || []).map(r => [r.match.filter(Boolean).join(", ") || r.name,
+         esc(r.to.join(", ")), r.enabled ? "" : "bad"]),
+     ])}`);
 }
 
-function zoneCard(a) {
+function zonePanel(a) {
   const z = (a.cloudflare || {}).zone;
   if (!z) return "";
-  return `
-  <div class="card">
-    <div class="top"><span class="name">Zone</span>
-      ${state(z.status === "active" && !z.paused ? "ok" : "warn",
-              z.paused ? "paused" : (z.status || "?"))}</div>
-    <div class="sub">Cloudflare · ${esc(z.plan || "")}</div>
-    ${kv([
-      ["DNS records", String(z.records)],
-      ["Active since", esc((z.activated || "").slice(0, 10))],
-      ["Nameservers", (z.nameservers || []).map(esc).join("<br>") || "—"],
-    ])}
-  </div>`;
+  return panel("Zone", st(z.status === "active" && !z.paused ? "ok" : "warn",
+      z.paused ? "paused" : (z.status || "?")),
+    `<div class="n">${z.records}<small>dns records</small></div>
+     <div class="sub">cloudflare · ${esc(z.plan || "")}</div>
+     ${kv([
+       ["active since", esc((z.activated || "").slice(0, 10))],
+       ["nameservers", (z.nameservers || []).map(esc).join("<br>") || "—", "dim"],
+     ])}`);
 }
-
-/* ── storage ──────────────────────────────────────────────────────────── */
 
 function storageSection(d, a) {
   const r2 = (a.cloudflare || {}).r2;
   const b2host = d.hosts.find(h => h.b2 && !h.b2.error && h.b2.bucket);
   const b2 = b2host && b2host.b2;
   if (!r2 && !b2) return "";
+  const pct = r2 ? (r2.bytes / r2.free_bytes) * 100 : 0;
+  const life = b2 && (b2.lifecycle || [])[0];
 
-  const r2pct = r2 ? (r2.bytes / r2.free_bytes) * 100 : 0;
-  return `
-  <h2>Object storage</h2>
-  <div class="grid">
-    ${r2 ? `
-    <div class="card">
-      <div class="top"><span class="name">R2</span>
-        ${state(sev(r2pct), r2pct < 1 ? "well inside free tier"
-                                      : r2pct.toFixed(0) + "% of free tier")}</div>
-      <div class="sub">Cloudflare · ${r2.buckets.length} bucket${
-        r2.buckets.length === 1 ? "" : "s"}</div>
-      ${meter("Stored", bytes(r2.bytes) + " / " + bytes(r2.free_bytes), r2pct)}
-      ${r2.buckets.map(b => kv([
-        [b.name, bytes(b.bytes) + " · " + num(b.objects) + " objects"],
-      ])).join("")}
-      <p class="note">Ten gigabytes is where the bill stops being zero.
-        Nothing enforces it.</p>
-    </div>` : ""}
-
-    ${b2 ? `
-    <div class="card">
-      <div class="top"><span class="name">B2</span>${state("ok", "reachable")}</div>
-      <div class="sub">Backblaze · ${esc(b2.bucket)}</div>
-      ${kv([
-        ["Stored", bytes(b2.bytes)],
-        ["Objects", num(b2.objects)],
-        ["Newest upload", b2.newest ? ago(b2.newest) : "—"],
-        ["Bucket type", esc(b2.type || "—")],
-        ["Deletes after", (b2.lifecycle || []).length
-          ? (n => n + (n === 1 ? " day hidden" : " days hidden"))(
-              (b2.lifecycle[0] || {}).daysFromHidingToDeleting)
-          : "no rule"],
-      ])}
-      <p class="note">Read by the agent on ${esc(b2host.host)}, which already
-        holds the key. Backblaze publishes no billing API, so the account's
-        caps and spend are not here — only this bucket.</p>
-    </div>` : ""}
+  return `<h2>Object storage</h2><div class="g g2">
+    ${r2 ? panel("R2", st(sev(pct), pct.toFixed(pct < 1 ? 1 : 0) + "% of free tier"),
+      `<div class="n">${bytes(r2.bytes)}</div>
+       <div class="tr ${sev(pct) === "ok" ? "" : sev(pct)}">
+         <i style="width:${Math.min(100, pct).toFixed(1)}%"></i></div>
+       <div class="sub">cloudflare · free tier ${bytes(r2.free_bytes)}</div>
+       ${kv(r2.buckets.map(b => [b.name, `${bytes(b.bytes)} · ${num(b.objects)} obj`]))}`) : ""}
+    ${b2 ? panel("B2", st("ok", "reachable"),
+      `<div class="n">${bytes(b2.bytes)}</div>
+       <div class="sub">backblaze · ${esc(b2.bucket)}</div>
+       ${kv([
+         ["objects", num(b2.objects)],
+         ["newest upload", b2.newest ? ago(b2.newest) : "—"],
+         ["bucket type", esc(b2.type || "—")],
+         life ? ["deletes after", life.daysFromHidingToDeleting +
+           (life.daysFromHidingToDeleting === 1 ? " day hidden" : " days hidden")] : null,
+         ["read by", esc(b2host.host), "dim"],
+       ])}`) : ""}
   </div>`;
 }
-
-/* ── credentials ──────────────────────────────────────────────────────── */
 
 function secretsSection(d) {
   const hosts = d.hosts.filter(h => Array.isArray(h.secrets) && h.secrets.length);
   if (!hosts.length) return "";
-  const total = new Set();
-  hosts.forEach(h => h.secrets.forEach(s => total.add(s.name)));
-  return `
-  <h2>Credentials</h2>
-  <div class="grid">
-    ${hosts.map(h => `
-    <div class="card">
-      <div class="top"><span class="name">${esc(h.host)}</span></div>
-      <div class="sub">${h.secrets.length} deployed</div>
-      ${h.secrets.map(s => `<div class="peer">
-        <span class="pn mono" style="min-width:0;flex:1">${esc(s.name)}</span>
-        <span class="pv">${esc(s.mode)}</span></div>`).join("")}
-    </div>`).join("")}
-  </div>
-  <p class="note">${total.size} distinct keys across ${hosts.length} hosts.
-    Names only — the values sit 0400 root beside them and are never read by
-    the agent, which is the only reason this can be shown at all.</p>`;
+  const all = new Set();
+  const rows = [];
+  for (const h of hosts) {
+    for (const s of h.secrets) {
+      all.add(s.name);
+      rows.push(`<tr><td>${esc(s.name)}</td><td class="d">${esc(h.host)}</td>
+        <td class="d r">${esc(s.mode)}</td>
+        <td class="d r">${esc(ago(s.modified))}</td></tr>`);
+    }
+  }
+  /* One table rather than a panel per host: the counts are 6, 3 and 19, and
+     three panels sized to the tallest leave two thirds of the row empty. */
+  return `<h2>Credentials</h2>${panel("",
+    `<span class="st idle"><i></i>${all.size} distinct · ${rows.length} deployed</span>`,
+    `<div class="scroll"><table>
+      <tr><th>name</th><th>host</th><th class="r">mode</th><th class="r">written</th></tr>
+      ${rows.join("")}</table></div>`)}`;
 }
 
-/* ── consoles ─────────────────────────────────────────────────────────── */
-
-/* The point of this row is that nobody should have to remember which of five
-   vendors owns which piece, or keep the URLs in a bookmarks folder that only
-   exists on one laptop. */
+/* The point of this row: nobody should have to remember which of six vendors
+   owns which piece, or keep the links in a bookmarks folder on one laptop. */
 const CONSOLES = [
-  ["Cloudflare", "https://dash.cloudflare.com", "DNS, tunnels, R2, mail routing"],
-  ["Porkbun", "https://porkbun.com/account/domainsSpeedy", "the registration itself"],
-  ["Backblaze B2", "https://secure.backblaze.com/b2_buckets.htm", "backup bucket, caps and spend"],
-  ["Tailscale", "https://login.tailscale.com/admin/machines", "ACLs, keys, DNS"],
+  ["Cloudflare", "https://dash.cloudflare.com", "dns · tunnels · r2 · mail"],
+  ["Porkbun", "https://porkbun.com/account/domainsSpeedy", "the registration"],
+  ["Backblaze B2", "https://secure.backblaze.com/b2_buckets.htm", "caps and spend"],
+  ["Tailscale", "https://login.tailscale.com/admin/machines", "acls · keys · dns"],
   ["Claude", "https://claude.ai/settings/usage", "plan usage and limits"],
-  ["GitHub", "https://github.com/neburion?tab=repositories", "this app and the flake pins"],
+  ["GitHub", "https://github.com/neburion?tab=repositories", "app and flake pins"],
 ];
 
-function consoleSection() {
-  return `
-  <h2>Consoles</h2>
-  <div class="links">
-    ${CONSOLES.map(([name, href, what]) => `
-    <a href="${esc(href)}" target="_blank" rel="noopener">
-      <span class="lt">${esc(name)}</span>
-      <span class="ld">${esc(what)}</span>
-    </a>`).join("")}
-  </div>`;
-}
-
-function accountsSection(d) {
-  if (!accounts) return "";
-  return `
-  <h2>Domain and mail</h2>
-  <div class="grid">
-    ${domainCard(accounts)}
-    ${mailCard(accounts)}
-    ${zoneCard(accounts)}
-  </div>
-  ${storageSection(d, accounts)}`;
-}
+const consoleSection = () => `<h2>Consoles</h2><div class="links">${
+  CONSOLES.map(([n, href, what]) => `<a href="${esc(href)}" target="_blank"
+    rel="noopener"><span class="lt">${esc(n)}</span>
+    <span class="ld">${esc(what)}</span></a>`).join("")}</div>`;
 
 /* ── render ───────────────────────────────────────────────────────────── */
 
 function render() {
   if (!data) return;
-  const sync = syncCards(data);
+  const sync = syncPanels(data);
+  const acc = accounts ? `<h2>Domain and mail</h2><div class="g g3">
+      ${domainPanel(accounts)}${mailPanel(accounts)}${zonePanel(accounts)}</div>
+    ${storageSection(data, accounts)}` : "";
+
   document.getElementById("main").innerHTML = `
-    ${hero(data)}
-    <h2>Hosts</h2>
-    <div class="grid">${data.hosts.map(hostCard).join("")}</div>
-    <h2>Backups</h2>
-    ${backupRows(data)}
-    ${sync ? `<h2>Sync</h2>${sync}` : ""}
-    <h2>Services</h2>
-    ${serviceRows(data)}
+    ${banner(data)}
+    <h2>Hosts</h2><div class="g g3">${data.hosts.map(hostPanel).join("")}</div>
+    <h2>Backups</h2>${backupPanel(data)}
+    ${sync ? `<h2>Sync</h2><div class="g g3">${sync}</div>` : ""}
+    <h2>Services</h2>${servicePanel(data)}
     ${claudeSection(data)}
-    ${tailscaleSection(data)}
-    ${accountsSection(data)}
+    ${tailnetSection(data)}
+    ${acc}
     ${secretsSection(data)}
     ${consoleSection()}`;
   tick();
@@ -870,8 +683,7 @@ function render() {
 
 function tick() {
   const el = document.getElementById("stamp");
-  if (!el) return;
-  el.textContent = data ? "updated " + ago(data.at) : "—";
+  if (el) el.textContent = data ? "updated " + ago(data.at) : "—";
 }
 
 async function load(force) {
@@ -883,12 +695,11 @@ async function load(force) {
   try {
     const r = await fetch("/api/status" + (force ? "?force=1" : ""),
                           { headers: { "Accept": "application/json" } });
-    // The session can expire while a tab is left open overnight; the API says
+    // A session can expire while a tab is left open overnight; the API says
     // 401 and the page would otherwise sit there showing yesterday.
     if (r.status === 401) { location.href = "/login"; return; }
     if (!r.ok) throw new Error("HTTP " + r.status);
     data = await r.json();
-    at = Date.now();
     render();
   } catch (e) {
     document.getElementById("pulse").classList.add("off");
