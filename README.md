@@ -20,10 +20,10 @@ record are deleted, not unwired.
 
 ## What it is
 
-A poller and a page. Every host in the fleet runs a `fleet-status` agent — a
-root timer that writes a JSON reading every 30s, and an unprivileged server
-that hands that one file out on `:8081` over the tailnet. This dials all three,
-works out what is wrong, and draws it.
+A poller and a page. Every host in the fleet runs the `fleet-status` agent in
+`agent/` — a root timer that writes a JSON reading every 30s, and an
+unprivileged server that hands that one file out on `:8081` over the tailnet.
+This dials all three, works out what is wrong, and draws it.
 
 Pull, not push. A host that has stopped answering *is* the down signal, so
 there is no heartbeat to miss and no writable endpoint anywhere in the fleet.
@@ -90,14 +90,58 @@ until reboot. That is how the system path here was tested.
 
 `uninstall.sh` takes it back, and keeps the credentials unless you type `delete`.
 
-### The agents are not installed by this
+### The agent, on every host
 
-`install.sh` deploys the page, not the things it reads. Each host still needs a
-`fleet-status` agent answering on `:8081`, and that is currently a NixOS module
-in `modules/system/services/fleet-status/` — so on a host that is not NixOS,
-this draws three unreachable cards. Most of that collector is plain systemd and
-`/proc`; only its `generation()` and its two readers under `/run/secrets` know
-what NixOS is.
+`agent/collect.py` and `agent/serve.py` live here, and `install.sh --agent`
+deploys them on whichever box you run it on:
+
+```sh
+sudo ./install.sh --agent
+sudo ./install.sh --agent --probes media-tracker=8778 --sync-user neburion
+```
+
+Every host needs one; only the host showing the page needs the page. It installs
+a root timer taking a reading every 30s and an unprivileged `DynamicUser` server
+handing that one file out on `:8081` — two units, because the numbers worth
+having need privilege and the thing behind a socket should not have it.
+
+`--agent` has no `--user` form. It reads other users' units, every filesystem and
+syncthing's API key, and a user unit has none of that.
+
+**It does not open a firewall port.** The server binds `0.0.0.0:8081` and admits
+whatever can route to the box until a rule says otherwise. On NixOS that rule is
+in the module; anywhere else it is yours to write.
+
+| `--agent` flag | |
+|---|---|
+| `--agent-port` / `--agent-bind` | where it listens; `8081` on `0.0.0.0` |
+| `--probes name=port,…` | local services to knock on. A unit can be `active` while the thing inside it has stopped answering, and that gap is the whole reason |
+| `--sync-user` | whose syncthing to report on. Named, not discovered: the API key is in that user's `config.xml` |
+| `--claude-home` | whose Claude Code transcripts to total |
+| `--secrets-dir` | where this host keeps decrypted credentials, `/run/secrets` by default. Listed **by name only** and never read |
+
+`FS_PROBES` takes JSON *or* `name=port,name=port`, because systemd strips quotes
+out of an `Environment=` value and JSON cannot be written without them. Nix
+generates its unit and escapes them properly, so it passes JSON; a hand-written
+unit passes the pairs and never has to get the escaping right.
+
+#### What a reboot means, three ways
+
+The only reading in here that cannot be taken the same way twice, because it is a
+question about how the OS is assembled. `generation.kind` says which answer you
+are looking at, and the page falls back to `version` where there is no generation
+number to show:
+
+| kind | how it decides a reboot is owed |
+|---|---|
+| `nixos` | `/run/booted-system` vs `/run/current-system`, comparing only kernel, kernel-modules, initrd and systemd. Comparing the whole thing would flag a reboot after every rebuild, including ones that only moved a config file, and a warning that is always on is one nobody reads |
+| `bootc` | a staged deployment in `bootc status`, which is one reboot from being the running one. **Untested against a real bootc host** — read defensively, so a surprise in that JSON records an error for this section rather than costing the reading |
+| `packaged` | `/usr/lib/modules/$(uname -r)` is gone, so the package manager replaced the kernel under the running one. The check every Arch reboot hint makes, and it reads the same on Debian and Fedora |
+
+The NixOS module in
+[neburion/NixOS](https://github.com/neburion/NixOS) still exists and is still how
+that fleet runs this, but it reads these two files out of `inputs.dashboard`
+rather than keeping its own copies — one collector, not two drifting ones.
 
 ## Running it from a checkout
 

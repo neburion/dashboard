@@ -1,0 +1,22 @@
+[Unit]
+Description=Collect this host's state for the fleet dashboard
+Documentation=https://github.com/neburion/dashboard
+
+[Service]
+Type=oneshot
+Environment=FS_OUT=@STATE@/status.json
+Environment=FS_PROBES=@PROBES@
+Environment=FS_SYNC_USER=@SYNCUSER@
+Environment=FS_CLAUDE_HOME=@CLAUDEHOME@
+Environment=FS_SECRETS_DIR=@SECRETSDIR@
+ExecStart=@PYTHON@ @ROOT@/agent/collect.py
+
+StateDirectory=fleet-status
+# 0755, not the default 0700: the serving half is a different user and has to be
+# able to walk in and read the file.
+StateDirectoryMode=0755
+
+# Runs as root, and carries none of the hardening the other units here do. That
+# is the whole reason the pair is two units: the numbers worth having need
+# privilege — another user's systemd units, syncthing's API key, every
+# filesystem — and this is the half that has it and never reads a request.

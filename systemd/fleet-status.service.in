@@ -1,0 +1,37 @@
+[Unit]
+Description=Serve this host's state to the fleet dashboard
+Documentation=https://github.com/neburion/dashboard
+After=network.target
+
+[Service]
+Environment=FS_OUT=@STATE@/status.json
+Environment=FS_BIND=@BIND@
+Environment=FS_PORT=@PORT@
+ExecStart=@PYTHON@ @ROOT@/agent/serve.py
+Restart=on-failure
+RestartSec=5s
+
+# No user to create: systemd allocates one for the length of the run. This half
+# holds nothing, can reach nothing, and serves one file, so there is nothing for
+# an identity to accumulate.
+DynamicUser=true
+ReadOnlyPaths=@STATE@
+
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# No AF_UNIX: unlike the dashboard this resolves no names and dials nothing. It
+# answers on a socket and reads one file.
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

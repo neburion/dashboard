@@ -1,0 +1,12 @@
+[Unit]
+Description=Take this host's reading every 30s
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+# Deliberately not Persistent: a reading taken whenever the box last happened to
+# be awake is worse than no reading, because the page would draw it as current.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

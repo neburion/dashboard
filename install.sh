@@ -4,7 +4,12 @@
 # and restarts the service.
 #
 #   ./install.sh --agents pod042,home-server,personal-server
-#                                    system service on 0.0.0.0:8779. Needs root.
+#                                    the page: system service on 0.0.0.0:8779.
+#   ./install.sh --agent             the agent this polls, on THIS host: a root
+#                                    timer taking a reading every 30s and an
+#                                    unprivileged server handing it out on :8081.
+#                                    Every host in the fleet needs one; only the
+#                                    machine showing the page needs the page.
 #   ./install.sh --agents pod042 --user
 #                                    user service on 127.0.0.1:8779. No root.
 #   ./install.sh --agents … --port 8779 --agent-port 8081
@@ -15,8 +20,9 @@
 #   ./install.sh --agents … --no-enable
 #   ./install.sh --agents … --dry-run     print the unit, touch nothing
 #
-# --agents is required, because there is no sensible default for which machines
-# are yours and the app exits without it.
+# --agents is required for the page, because there is no sensible default for
+# which machines are yours and the app exits without it. --agent takes none of
+# that: an agent reports on the box it is running on and knows about no others.
 #
 # A system install COPIES the code to --prefix (/opt/dashboard by default) rather
 # than running it out of the checkout, because a checkout usually lives in a home
@@ -30,18 +36,26 @@
 # and the accounts panel says "not configured", so the service starts either way.
 #
 # What it does NOT do: install python3, open a firewall port, put anything in
-# front of the app, give it a password, or install the fleet-status agents this
-# polls. Without an agent answering on each host there is nothing to draw.
+# front of either service, or give the page a password. The agent listens on
+# 0.0.0.0:8081 and expects the host firewall to admit only the tailnet — on NixOS
+# that rule is in the module; anywhere else it is yours to add, and until you do
+# the port is open to whatever can route to the box.
 set -eu
 
 SELF=$(readlink -f -- "$0")
 ROOT=$(dirname -- "$SELF")
 
 mode=system
+what=page
 host=
 port=8779
 agents=
 agentport=8081
+probes=
+syncuser=
+claudehome=
+secretsdir=/run/secrets
+agentbind=0.0.0.0
 zone=azuresalt.app
 cfaccount=
 python=
@@ -56,7 +70,13 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --user)        mode=user ;;
         --system)      mode=system ;;
+        --agent)       what=agent ;;
         --agents)      agents=${2:?--agents needs a value}; shift ;;
+        --probes)      probes=${2:?--probes needs a value}; shift ;;
+        --sync-user)   syncuser=${2:?--sync-user needs a value}; shift ;;
+        --claude-home) claudehome=${2:?--claude-home needs a value}; shift ;;
+        --secrets-dir) secretsdir=${2:?--secrets-dir needs a value}; shift ;;
+        --agent-bind)  agentbind=${2:?--agent-bind needs a value}; shift ;;
         --host)        host=${2:?--host needs a value}; shift ;;
         --port)        port=${2:?--port needs a value}; shift ;;
         --agent-port)  agentport=${2:?--agent-port needs a value}; shift ;;
@@ -69,14 +89,30 @@ while [ $# -gt 0 ]; do
         --in-place)    inplace=yes ;;
         --no-enable)   enable=no ;;
         --dry-run)     dryrun=yes; enable=no ;;
-        -h|--help)     sed -n '2,33p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)     sed -n '2,42p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
 done
 
 # ── 0. the things that have to be true first ────────────────────────────────
-if [ -z "$agents" ]; then
+# The agent is a root timer reading every filesystem and another user's units.
+# There is no user-scope version of that, so there is no --user for it.
+if [ "$what" = agent ] && [ "$mode" = user ]; then
+    echo "install.sh: --agent has no user-scope version." >&2
+    echo "  It reads other users' units, every filesystem and syncthing's key," >&2
+    echo "  which is privilege a user unit does not have. Run it with sudo." >&2
+    exit 2
+fi
+
+if [ "$what" = agent ] && [ -n "$agents" ]; then
+    echo "install.sh: --agent and --agents are different things, and not both." >&2
+    echo "  --agent installs the collector on this host. --agents tells the page" >&2
+    echo "  which hosts to poll. Run the two separately." >&2
+    exit 2
+fi
+
+if [ "$what" = page ] && [ -z "$agents" ]; then
     echo "install.sh: --agents is required, e.g." >&2
     echo "  ./install.sh --agents pod042,home-server,personal-server" >&2
     echo "Each name has to resolve and answer on :$agentport — the fleet-status" >&2
@@ -92,6 +128,11 @@ fi
 import sys
 assert sys.version_info >= (3, 9), f"python 3.9+ required, this is {sys.version.split()[0]}"
 PY
+
+if [ "$what" = agent ]; then
+    port=$agentport
+    host=$agentbind
+fi
 
 for n in "$port" "$agentport"; do
     case "$n" in
@@ -112,6 +153,7 @@ if [ "$mode" = system ]; then
     : "${unitdir:=/etc/systemd/system}"
     : "${prefix:=/opt/dashboard}"
     : "${credsdir:=/etc/dashboard/credentials}"
+    agentstate=/var/lib/fleet-status
     svcuser=dashboard
     # No Group=: useradd --user-group creates a primary group of the same name,
     # which is what systemd falls back to. A two-line value here would also be a
@@ -136,6 +178,7 @@ else
     sudo=
     : "${unitdir:=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
     : "${credsdir:=${XDG_CONFIG_HOME:-$HOME/.config}/dashboard/credentials}"
+    agentstate=/var/lib/fleet-status
     svcuser=
     code=$ROOT
     userdirective="# no User=: a user unit already runs as you"
@@ -163,7 +206,11 @@ if [ "$dryrun" = yes ]; then
     echo "dashboard → DRY RUN, nothing outside $unitdir is written"
 fi
 
-echo "dashboard → $mode service, $host:$port"
+if [ "$what" = agent ]; then
+    echo "fleet-status → agent on this host, $host:$port"
+else
+    echo "dashboard → $mode service, $host:$port"
+fi
 echo "  checkout   $ROOT"
 if [ "$code" != "$ROOT" ]; then
     echo "  code       $code (copied from the checkout)"
@@ -171,14 +218,20 @@ else
     echo "  code       $ROOT (in place)"
 fi
 echo "  python     $python"
-echo "  agents     $agents on :$agentport"
-echo "  creds      $credsdir"
+if [ "$what" = agent ]; then
+    echo "  reading    $agentstate/status.json every 30s"
+    [ -n "$probes" ] && echo "  probes     $probes" || true
+    echo "  secrets    $secretsdir (listed by name only, never read)"
+else
+    echo "  agents     $agents on :$agentport"
+    echo "  creds      $credsdir"
+fi
 echo "  units      $unitdir"
 
 # ── 2. the service user ─────────────────────────────────────────────────────
 # No shell and no home: it exists to be a uid, and a login for it would be a way
 # in that nothing needs.
-if [ "$mode" = system ] && [ "$dryrun" = no ]; then
+if [ "$what" = page ] && [ "$mode" = system ] && [ "$dryrun" = no ]; then
     if getent passwd "$svcuser" >/dev/null 2>&1; then
         echo "  user       $svcuser exists"
     else
@@ -193,7 +246,7 @@ fi
 # ── 3. the code the service runs ────────────────────────────────────────────
 # Named rather than `cp -a .`, so what lands in a system directory is a decision
 # and not whatever happened to be in the working tree.
-payload="app.py ui.html"
+payload="app.py ui.html agent"
 
 if [ "$code" != "$ROOT" ] && [ "$dryrun" = no ]; then
     $sudo mkdir -p "$code"
@@ -225,9 +278,17 @@ esac
 
 # A home directory at 0700 is the common way this fails, and it fails as a
 # restart loop three seconds after a deploy rather than here.
-if [ "$mode" = system ] && [ "$dryrun" = no ]; then
-    if ! $sudo -u "$svcuser" test -r "$code/app.py"; then
-        echo "install.sh: $svcuser cannot read $code/app.py" >&2
+if [ "$what" = agent ]; then
+    reader=nobody
+    probe_file=$code/agent/serve.py
+else
+    reader=$svcuser
+    probe_file=$code/app.py
+fi
+
+if [ "$mode" = system ] && [ "$dryrun" = no ] && getent passwd "$reader" >/dev/null 2>&1; then
+    if ! $sudo -u "$reader" test -r "$probe_file"; then
+        echo "install.sh: $reader cannot read $probe_file" >&2
         echo "  Every parent directory has to be traversable by that user." >&2
         case "$code" in
             /home/*|/root/*|/Users/*)
@@ -247,7 +308,7 @@ fi
 secrets="porkbun-api-key porkbun-secret-key cloudflare-token"
 missing=
 
-if [ "$dryrun" = no ]; then
+if [ "$what" = page ] && [ "$dryrun" = no ]; then
     $sudo mkdir -p "$credsdir"
     $sudo chmod 0700 "$credsdir"
     if [ "$mode" = system ]; then
@@ -288,30 +349,62 @@ if ! $sudo mkdir -p "$unitdir" 2>/dev/null || ! $sudo test -w "$unitdir"; then
     exit 1
 fi
 
-sed -e "/@PROTECTHOME@/{
-            r $phfile
-            d
-        }" \
-    -e "s|@ROOT@|$code|g" \
-    -e "s|@PYTHON@|$python|g" \
-    -e "s|@CREDS@|$credsdir|g" \
-    -e "s|@AGENTS@|$agents|g" \
-    -e "s|@AGENTPORT@|$agentport|g" \
-    -e "s|@ZONE@|$zone|g" \
-    -e "s|@CFACCOUNT@|$cfaccount|g" \
-    -e "s|@HOST@|$host|g" \
-    -e "s|@PORT@|$port|g" \
-    -e "s|@TARGET@|$target|g" \
-    -e "s|@USERDIRECTIVE@|$userdirective|g" \
-    "$ROOT/systemd/dashboard.service.in" | $sudo tee "$unitdir/dashboard.service" >/dev/null
-echo "  wrote      $unitdir/dashboard.service"
+fill() {
+    sed -e "/@PROTECTHOME@/{
+                r $phfile
+                d
+            }" \
+        -e "s|@ROOT@|$code|g" \
+        -e "s|@PYTHON@|$python|g" \
+        -e "s|@CREDS@|$credsdir|g" \
+        -e "s|@AGENTS@|$agents|g" \
+        -e "s|@AGENTPORT@|$agentport|g" \
+        -e "s|@ZONE@|$zone|g" \
+        -e "s|@CFACCOUNT@|$cfaccount|g" \
+        -e "s|@STATE@|$agentstate|g" \
+        -e "s|@PROBES@|$probes|g" \
+        -e "s|@SYNCUSER@|$syncuser|g" \
+        -e "s|@CLAUDEHOME@|$claudehome|g" \
+        -e "s|@SECRETSDIR@|$secretsdir|g" \
+        -e "s|@BIND@|$agentbind|g" \
+        -e "s|@HOST@|$host|g" \
+        -e "s|@PORT@|$port|g" \
+        -e "s|@TARGET@|$target|g" \
+        -e "s|@USERDIRECTIVE@|$userdirective|g" \
+        "$1"
+}
+
+if [ "$what" = agent ]; then
+    services="fleet-status-collect.service fleet-status.service"
+    timers="fleet-status-collect.timer"
+    # The timer drives the collector, so the collector itself is not enabled —
+    # enabling a oneshot with no [Install] would be a unit that wants to run at
+    # boot and then never again.
+    enableunits="fleet-status.service fleet-status-collect.timer"
+else
+    services="dashboard.service"
+    timers=""
+    enableunits="dashboard.service"
+fi
+
+for u in $services; do
+    fill "$ROOT/systemd/$u.in" | $sudo tee "$unitdir/$u" >/dev/null
+    echo "  wrote      $unitdir/$u"
+done
+for t in $timers; do
+    $sudo cp "$ROOT/systemd/$t" "$unitdir/$t"
+    echo "  wrote      $unitdir/$t"
+done
 
 # ── 6. hand it to systemd ───────────────────────────────────────────────────
 if [ "$dryrun" = yes ]; then
     echo
-    cat "$unitdir/dashboard.service"
-    echo
-    echo "dry run: $unitdir holds the unit, nothing else changed"
+    for f in "$unitdir"/*; do
+        echo "─── ${f##*/} ───"
+        cat "$f"
+        echo
+    done
+    echo "dry run: $unitdir holds the units, nothing else changed"
     exit 0
 fi
 
@@ -319,19 +412,30 @@ $ctl daemon-reload
 
 if [ "$enable" = no ]; then
     echo
-    echo "unit written, nothing started (--no-enable). When you want it:"
-    echo "  $ctl enable --now dashboard.service"
+    echo "units written, nothing started (--no-enable). When you want it:"
+    echo "  $ctl enable --now $enableunits"
 else
-    $ctl enable --now dashboard.service
+    # shellcheck disable=SC2086
+    $ctl enable --now $enableunits
     echo
-    $ctl --no-pager --lines=0 status dashboard.service | sed -n '1,4p' | sed 's/^/  /' || true
+    for u in $enableunits; do
+        $ctl --no-pager --lines=0 status "$u" | sed -n '1,3p' | sed 's/^/  /' || true
+    done
 fi
 
 echo
-echo "  http://$host:$port"
-if [ "$mode" = system ]; then
+if [ "$what" = agent ]; then
+    echo "  http://$(hostname -s 2>/dev/null || echo this-host):$port/status.json"
+    echo "  logs:    journalctl -u fleet-status-collect -u fleet-status -f"
+    echo "  the first reading lands 30s after boot, or now:"
+    echo "    $ctl start fleet-status-collect.service"
+    echo "  the firewall is yours: this listens on $agentbind:$port and admits"
+    echo "  whatever can route to it until a rule says otherwise."
+elif [ "$mode" = system ]; then
+    echo "  http://$host:$port"
     echo "  logs:    journalctl -u dashboard -f"
 else
+    echo "  http://$host:$port"
     echo "  logs:    journalctl --user -u dashboard -f"
 fi
 if [ -n "$missing" ]; then

@@ -360,7 +360,12 @@ function hostPanel(h) {
      ${disks.map(d => meter(d.mount, `${bytes(d.used)} / ${bytes(d.total)}`,
                             100 * d.used / d.total)).join("")}
      ${kv([
-       g.number ? ["generation", `${g.number} · ${ago(g.built)}`] : null,
+       /* A generation number is a NixOS idea. An image-based or a
+          package-managed host has a version instead, and gets the same row
+          under its own word rather than a blank where this one was. */
+       g.number ? ["generation", `${g.number} · ${ago(g.built)}`]
+         : g.version ? ["system", `${esc(g.version)}${g.built ? ` · ${ago(g.built)}` : ""}`]
+         : null,
        g.reboot_pending ? ["reboot", "<b>pending</b>", "warn"] : null,
        g.untracked ? ["activation", "test", "warn"] : null,
        ["round trip", (h.rtt_ms ?? "—") + " ms", "dim"],
