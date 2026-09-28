@@ -3,8 +3,20 @@
 Three machines on one page. Hosts, backups, syncs, apps, and a band at the top
 that is empty when nothing is wrong.
 
-Runs on the app platform in [neburion/NixOS](https://github.com/neburion/NixOS):
-`app.json` is the whole interface, and there is no Nix in here.
+Two ways to deploy it, and neither puts any Nix in here:
+
+| | |
+|---|---|
+| `./install.sh --agents …` | a systemd unit, a service user and a credentials directory, on any distro with a writable `/etc`. See *Installing it*. |
+| `app.json` | the app platform in [neburion/NixOS](https://github.com/neburion/NixOS) reads that manifest and generates the same unit, user and firewall rule |
+
+They describe the same service, and `install.sh` is the one that outlives NixOS.
+
+It is reachable on the tailnet and nowhere else, at
+**http://personal-server:8779**. There is no public hostname and no login:
+`dashboard.azuresalt.app` was a Cloudflare tunnel in front of a password, and the
+two left together, because each was the other's reason. The tunnel and its DNS
+record are deleted, not unwired.
 
 ## What it is
 
@@ -25,7 +37,69 @@ double the traffic. A restart loses nothing because there was nothing to lose.
 **Whether `personal-server` is up**, because that is where it runs. A dead page
 is that host's outage. Everything else degrades to one unreachable card.
 
-## Running it
+## Installing it
+
+```sh
+git clone https://github.com/neburion/dashboard && cd dashboard
+sudo ./install.sh --agents pod042,home-server,personal-server
+./install.sh --agents pod042 --user          # no root, 127.0.0.1
+./install.sh --agents pod042 --dry-run       # print the unit, touch nothing
+```
+
+`--agents` is required. There is no sensible default for which machines are
+yours, and the app exits without it.
+
+Idempotent: `git pull && ./install.sh --agents …` rewrites the unit and restarts
+the service.
+
+**A system install copies the code to `/opt/dashboard`** rather than running it
+from the checkout. The service runs as its own user, a checkout lives in a home
+directory, and a home directory is mode `0700` — so the service cannot read its
+own `app.py`, and no `ProtectHome=` value argues with a directory mode. The NixOS
+unit never met this because its code sat in `/nix/store`. `--in-place` skips the
+copy and preflights that the service user really can read the code; `--prefix`
+moves where it lands. A `--user` install always runs in place.
+
+**The three account credentials live in files.** `install.sh` creates
+`/etc/dashboard/credentials/` (`~/.config/dashboard/credentials/` for `--user`)
+holding `porkbun-api-key`, `porkbun-secret-key` and `cloudflare-token`, empty,
+`0600`. The unit hands them over with `LoadCredential=`, which systemd reads as
+root before the `User=` drop, so they never reach the process environment table.
+Empty reads as absent, the accounts panel says *not configured*, and the service
+starts regardless — a missing key is not a failed unit. Fill one in and restart:
+
+```sh
+printf %s 'THE-KEY' | sudo tee /etc/dashboard/credentials/porkbun-api-key >/dev/null
+sudo systemctl restart dashboard
+```
+
+The three lines are unconditional because `LoadCredential=` fails a unit when its
+source file is missing, and there is no optional form. Creating them empty is
+what buys the graceful version.
+
+**It turns the login off, deliberately.** The app refuses to bind a reachable
+address without a password — this page is a map of the fleet, which is the
+document you would want first — and the unit sets `DASH_ALLOW_NO_AUTH=1` because
+the deployment it came from reaches it over a tailnet, where the interface is the
+gate. Bind something strangers can reach and you need to put that back.
+
+**On NixOS a system install cannot work**, since `/etc/systemd/system` is a
+read-only store symlink. `install.sh` says so and offers `--user`, or
+`--unit-dir /run/systemd/system --no-enable` for a real system service that lasts
+until reboot. That is how the system path here was tested.
+
+`uninstall.sh` takes it back, and keeps the credentials unless you type `delete`.
+
+### The agents are not installed by this
+
+`install.sh` deploys the page, not the things it reads. Each host still needs a
+`fleet-status` agent answering on `:8081`, and that is currently a NixOS module
+in `modules/system/services/fleet-status/` — so on a host that is not NixOS,
+this draws three unreachable cards. Most of that collector is plain systemd and
+`/proc`; only its `generation()` and its two readers under `/run/secrets` know
+what NixOS is.
+
+## Running it from a checkout
 
 ```
 python3 app.py                     # http://127.0.0.1:8779, no auth
@@ -41,10 +115,13 @@ python3 app.py --once              # the verdict, in a terminal, no server
 | `DASH_PASSWORD` / `DASH_USERNAME` | — | login, when not run under systemd |
 | `DASH_UI` | `./ui.html` | the page |
 
-Deployed, both halves of the login arrive as systemd credentials from sops.
-Binding anything but loopback without a password is refused — the page is an
-inventory of the fleet and it is published, so there is no degraded mode worth
-having.
+| `DASH_PORKBUN_API_KEY` etc. | — | the account keys, when not run under systemd |
+| `DASH_ALLOW_NO_AUTH` | — | bind a reachable address with no password, on purpose |
+
+Under systemd every credential arrives through `LoadCredential=` instead, from
+files on a NixOS host by way of sops, and from `--creds-dir` otherwise. Binding
+anything but loopback without a password is refused unless `DASH_ALLOW_NO_AUTH`
+says it was meant — see *Installing it*.
 
 ## The verdicts
 

@@ -1,0 +1,55 @@
+[Unit]
+Description=The fleet at a glance — hosts, syncs, backups, accounts, and whatever is wrong
+Documentation=https://github.com/neburion/dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Written by install.sh from this file. Every @NAME@ below is substituted with a
+# real value, so the installed copy carries absolute paths and no lookups.
+Environment=DASH_HOST=@HOST@
+Environment=DASH_PORT=@PORT@
+Environment=DASH_AGENTS=@AGENTS@
+Environment=DASH_AGENT_PORT=@AGENTPORT@
+Environment=DASH_ZONE=@ZONE@
+Environment=DASH_CF_ACCOUNT=@CFACCOUNT@
+# This page is an inventory of the fleet — hostnames, what each runs, which
+# ports answer, how full the disks are — so the app refuses to bind a reachable
+# address without a password. Nothing in front of it authenticates here: the
+# gate is whatever keeps @HOST@ unreachable from outside, which on this fleet is
+# the tailnet interface.
+Environment=DASH_ALLOW_NO_AUTH=1
+
+ExecStart=@PYTHON@ @ROOT@/app.py
+Restart=on-failure
+RestartSec=5s
+@USERDIRECTIVE@
+# Read as root at unit start and handed over after the User= drop, which keeps
+# these out of the process environment table where `systemctl show` would print
+# them. An empty file reads as absent and the accounts panel says so, so the
+# three lines are unconditional and a missing key is not a failed unit.
+LoadCredential=porkbun-api-key:@CREDS@/porkbun-api-key
+LoadCredential=porkbun-secret-key:@CREDS@/porkbun-secret-key
+LoadCredential=cloudflare-token:@CREDS@/cloudflare-token
+
+# No StateDirectory, and that is the design rather than an omission: every
+# number is read on the request that asked for it. A restart loses nothing
+# because there was nothing to lose.
+ProtectSystem=strict
+@PROTECTHOME@
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# AF_UNIX for name resolution; the two INET families to listen, to dial each
+# agent on the tailnet, and to reach Porkbun and Cloudflare.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=@TARGET@
